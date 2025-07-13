@@ -58,7 +58,45 @@ end
 module C : Component = Counter
 
 let dream_tyxml x =
-  let str = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) x in
+  let js = "
+    console.log('js: hello js');
+    const socket = new WebSocket('//' + window.location.host + window.location.pathname);
+
+    socket.onmessage = function (e) {
+      console.log('ws: ' + e.data);
+    };
+
+    const queue = []
+
+    function send_message(m) {
+      if (socket.readyState !== 1) {
+        queue.push(m);
+      } else {
+        socket.send(msg);
+      }
+    };
+
+    socket.onopen = function () {
+      while (queue.length > 0) {
+        socket.send(queue.shift());
+      };
+    };
+
+    function send_action(action) {
+      send_message('action: ' + action);
+    };
+
+    console.log('js: ready js');
+
+    send_action('load 1');
+    send_action('load 2');
+    "
+  in
+  let body =
+    let open Tyxml.Html in
+    body [script (cdata_script js); x]
+  in
+  let str = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) body in
   Dream.html str
 
 let get_state req =
@@ -80,11 +118,27 @@ let action_handler req action =
     | None ->
         Dream.redirect req "."
 
+let liveview _state websocket =
+  let%lwt () = Dream.send websocket "hello socket" in
+  let rec loop () =
+    match%lwt Dream.receive websocket with
+    | None -> Lwt.return ()
+    | Some msg ->
+      let%lwt () = Dream.send websocket ("echo: " ^ msg) in
+      loop ()
+  in loop ()
+
 let get_handler req =
   let state = get_state req in
-  (* TODO reuse instance id if given *)
-  let context = Context.{ instance_id = Dream.random 16 ; string_of_action = Counter.string_of_action } in
-  dream_tyxml (Counter.render context state)
+  match Dream.header req "Upgrade" with
+  | Some "websocket" ->
+    (* TODO check CSRF tocken *)
+    Dream.websocket (liveview state)
+  | _ ->
+    (* TODO reuse instance id if given *)
+    (* TODO I guess we won't need the instance id; just do all interactivity over the web socket *)
+    let context = Context.{ instance_id = Dream.random 16 ; string_of_action = Counter.string_of_action } in
+    dream_tyxml (Counter.render context state)
 
 let handler req =
   match Dream.query req "action" with
