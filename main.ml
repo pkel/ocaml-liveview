@@ -6,6 +6,14 @@ module Context = struct
 
   let a_formaction t a =
     Tyxml_html.a_formaction (".?action=" ^ (t.string_of_action a) ^ "&instance=" ^ (Dream.to_base64url t.instance_id))
+
+  let a_onclick t a =
+    let js =
+      Printf.sprintf
+        "liveview_action(event, \"%s\")"
+        (t.string_of_action a)
+    in
+    Tyxml_html.a_onclick js
 end
 
 module type Component = sig
@@ -49,8 +57,8 @@ module Counter = struct
     div [
       p [txt (string_of_int x)];
       form ~a:[a_action "."; a_method `Post] [
-        input ~a:[a_input_type `Submit; a_formaction ctx Incr; a_value "+ Incr"] ();
-        input ~a:[a_input_type `Submit; a_formaction ctx Decr; a_value "- Decr"] ()
+        input ~a:[a_input_type `Submit; a_onclick ctx Incr; a_formaction ctx Incr; a_value "+ Incr"] ();
+        input ~a:[a_input_type `Submit; a_onclick ctx Decr; a_formaction ctx Decr; a_value "- Decr"] ()
         ]
     ]
 end
@@ -63,16 +71,25 @@ let dream_tyxml x =
     const socket = new WebSocket('//' + window.location.host + window.location.pathname);
 
     socket.onmessage = function (e) {
-      console.log('ws: ' + e.data);
+      console.log('ws rcv: ' + e.data);
+      var obj = false;
+      try {
+        obj = JSON.parse(e.data);
+      } catch (e) {}
+      if (obj && obj.hasOwnProperty('update')) {
+        // TODO, use morphdom here
+        document.body.innerHTML = obj.update;
+      }
     };
 
     const queue = []
 
     function send_message(m) {
+      console.log('ws snd: ' + m);
       if (socket.readyState !== 1) {
         queue.push(m);
       } else {
-        socket.send(msg);
+        socket.send(m);
       }
     };
 
@@ -83,20 +100,28 @@ let dream_tyxml x =
     };
 
     function send_action(action) {
-      send_message('action: ' + action);
+      send_message('action|' + action);
+    };
+
+    function liveview_action(event, action) {
+      event.preventDefault();
+      event.stopPropagation();
+      send_action(action);
     };
 
     console.log('js: ready js');
 
-    send_action('load 1');
-    send_action('load 2');
+    send_message('info|load 1');
+    send_message('info|load 2');
     "
   in
-  let body =
+  let html =
     let open Tyxml.Html in
-    body [script (cdata_script js); x]
+    html
+      (head (title (txt "Counter")) [script (cdata_script js)])
+      (body [x])
   in
-  let str = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) body in
+  let str = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) html in
   Dream.html str
 
 let get_state req =
@@ -118,15 +143,71 @@ let action_handler req action =
     | None ->
         Dream.redirect req "."
 
-let liveview _state websocket =
+module Message = struct
+  open Angstrom
+
+  type t =
+    | Action of string
+    | Info of string
+
+  let action_parser =
+    string "action|" *> take_while (fun c -> c <> '\n') >>| fun s -> Action s
+
+  let info_parser =
+    string "info|" *> take_while (fun c -> c <> '\n') >>| fun s -> Info s
+
+  let t_parser =
+    choice [action_parser; info_parser]
+
+  let parse msg =
+    parse_string ~consume:Consume.All t_parser msg
+end
+
+let liveview state websocket =
   let%lwt () = Dream.send websocket "hello socket" in
-  let rec loop () =
+  let rec loop state =
     match%lwt Dream.receive websocket with
     | None -> Lwt.return ()
     | Some msg ->
-      let%lwt () = Dream.send websocket ("echo: " ^ msg) in
-      loop ()
-  in loop ()
+        match Message.parse msg with
+        | Ok (Action action) ->
+          begin
+          match Counter.action_of_string action with
+          | Some action ->
+            let state = Counter.apply state action in
+            let html =
+              let context =
+                (* TODO generating a new instance id is not sound *)
+                Context.{ instance_id = Dream.random 16
+                        ; string_of_action = Counter.string_of_action } in
+              Counter.render context state
+            in
+            let msg =
+              let open Yojson.Safe in
+              let upd = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) html in
+              let obj = `Assoc [("update", `String upd)] in
+              to_string obj
+            in
+            let%lwt () = Dream.send websocket msg in
+            loop state
+          | None ->
+            let msg = "error: unknown action: \""
+                      ^ action ^ "\""
+            in
+            let%lwt () = Dream.send websocket msg in
+            loop state
+          end
+        | Ok (Info info) ->
+          let msg = "received info: " ^ info in
+          let%lwt () = Dream.send websocket msg in
+          loop state
+        | Error emsg ->
+          let msg = "error: cannot parse message: \""
+                    ^ msg ^ "\": " ^ emsg
+          in
+          let%lwt () = Dream.send websocket msg in
+          loop state
+  in loop state
 
 let get_handler req =
   let state = get_state req in
