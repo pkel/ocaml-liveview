@@ -204,7 +204,17 @@ let liveview context state websocket =
   in loop state
 
 let get_handler req =
-  let state = get_state req in
+  let state =
+    (* TODO How sync state from initial page render to the websocket?
+     *
+     * As is, this attempts to read the state from the session, but we never
+     * write the state to the session. So we create a new state for the
+     * websocket. No problem if Component.init is constant. But what if the
+     * start state depends on get params or the session state? Or is
+     * indeterministic even? This leads to state asynchrony between client and
+     * server. *)
+    get_state req
+  in
   let context = Context.{ string_of_action = Counter.string_of_action } in
   match Dream.header req "Upgrade" with
   | Some "websocket" ->
