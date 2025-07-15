@@ -1,11 +1,6 @@
 module Context = struct
   type 'a t =
-    { instance_id : string
-    ; string_of_action: 'a -> string
-    }
-
-  let a_formaction t a =
-    Tyxml_html.a_formaction (".?action=" ^ (t.string_of_action a) ^ "&instance=" ^ (Dream.to_base64url t.instance_id))
+    { string_of_action: 'a -> string }
 
   let a_onclick t a =
     let js =
@@ -57,8 +52,8 @@ module Counter = struct
     div [
       p [txt (string_of_int x)];
       form ~a:[a_action "."; a_method `Post] [
-        input ~a:[a_input_type `Submit; a_onclick ctx Incr; a_formaction ctx Incr; a_value "+ Incr"] ();
-        input ~a:[a_input_type `Submit; a_onclick ctx Decr; a_formaction ctx Decr; a_value "- Decr"] ()
+        input ~a:[a_input_type `Submit; a_onclick ctx Incr; a_value "+ Incr"] ();
+        input ~a:[a_input_type `Submit; a_onclick ctx Decr; a_value "- Decr"] ()
         ]
     ]
 end
@@ -129,7 +124,6 @@ let dream_tyxml x =
   Dream.html str
 
 let get_state req =
-  (* TODO maintain one state per window / instance_id *)
   match Dream.session_field req "state" with
   | None -> Counter.init ()
   | Some str -> Marshal.from_string str 0
@@ -167,7 +161,7 @@ module Message = struct
     parse_string ~consume:Consume.All t_parser msg
 end
 
-let liveview state websocket =
+let liveview context state websocket =
   let%lwt () = Dream.send websocket "hello socket" in
   let rec loop state =
     match%lwt Dream.receive websocket with
@@ -179,13 +173,7 @@ let liveview state websocket =
           match Counter.action_of_string action with
           | Some action ->
             let state = Counter.apply state action in
-            let html =
-              let context =
-                (* TODO generating a new instance id is not sound *)
-                Context.{ instance_id = Dream.random 16
-                        ; string_of_action = Counter.string_of_action } in
-              Counter.render context state
-            in
+            let html = Counter.render context state in
             let msg =
               let open Yojson.Safe in
               let upd = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) html in
@@ -215,14 +203,12 @@ let liveview state websocket =
 
 let get_handler req =
   let state = get_state req in
+  let context = Context.{ string_of_action = Counter.string_of_action } in
   match Dream.header req "Upgrade" with
   | Some "websocket" ->
     (* TODO check CSRF tocken *)
-    Dream.websocket (liveview state)
+    Dream.websocket (liveview context state)
   | _ ->
-    (* TODO reuse instance id if given *)
-    (* TODO I guess we won't need the instance id; just do all interactivity over the web socket *)
-    let context = Context.{ instance_id = Dream.random 16 ; string_of_action = Counter.string_of_action } in
     dream_tyxml (Counter.render context state)
 
 let handler req =
