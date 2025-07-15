@@ -60,10 +60,12 @@ end
 
 module C : Component = Counter
 
-let dream_tyxml x =
-  let js = "
+let dream_tyxml ~csrf_token x =
+  let js = Printf.sprintf "
     console.log('js: hello js');
-    const socket = new WebSocket('//' + window.location.host + window.location.pathname);
+    const loc = window.location;
+    const ws_url = `//${loc.host}${loc.pathname}?csrf_token=%s`;
+    const socket = new WebSocket(ws_url);
 
     socket.onmessage = function (e) {
       console.log('ws rcv: ' + e.data);
@@ -109,7 +111,7 @@ let dream_tyxml x =
 
     send_message('info|load 1');
     send_message('info|load 2');
-    "
+    " csrf_token
   in
   let html =
     let open Tyxml.Html in
@@ -206,10 +208,19 @@ let get_handler req =
   let context = Context.{ string_of_action = Counter.string_of_action } in
   match Dream.header req "Upgrade" with
   | Some "websocket" ->
-    (* TODO check CSRF tocken *)
-    Dream.websocket (liveview context state)
+    begin
+      match Dream.query req "csrf_token" with
+      | None -> Dream.empty `Unauthorized
+      | Some token ->
+        match%lwt Dream.verify_csrf_token req token with
+        | `Expired _ -> Dream.empty `Forbidden
+        | `Wrong_session -> Dream.empty `Forbidden
+        | `Invalid -> Dream.empty `Unauthorized
+        | `Ok -> Dream.websocket (liveview context state)
+    end
   | _ ->
-    dream_tyxml (Counter.render context state)
+    let csrf_token = Dream.csrf_token req in
+    dream_tyxml ~csrf_token (Counter.render context state)
 
 let handler req =
   match Dream.query req "action" with
