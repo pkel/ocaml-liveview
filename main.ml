@@ -77,8 +77,9 @@ let dream_tyxml x =
         obj = JSON.parse(e.data);
       } catch (e) {}
       if (obj && obj.hasOwnProperty('update')) {
-        // TODO, use morphdom here
-        document.body.innerHTML = obj.update;
+        const new_body = document.createElement('body');
+        new_body.innerHTML = obj.update;
+        morphdom(document.body, new_body);
       }
     };
 
@@ -118,10 +119,13 @@ let dream_tyxml x =
   let html =
     let open Tyxml.Html in
     html
-      (head (title (txt "Counter")) [script (cdata_script js)])
+      (head (title (txt "Counter")) [
+          script (cdata_script js);
+        script ~a:[a_src "https://cdn.jsdelivr.net/npm/morphdom@2.7.5/dist/morphdom-umd.min.js"] (txt "")
+        ])
       (body [x])
   in
-  let str = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) html in
+  let str = Format.asprintf "%a" (Tyxml.Html.pp ()) html in
   Dream.html str
 
 let get_state req =
