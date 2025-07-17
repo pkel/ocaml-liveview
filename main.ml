@@ -9,6 +9,15 @@ module Context = struct
         (t.string_of_action a)
     in
     Tyxml_html.a_onclick js
+
+  let a_oninput t a =
+    let js =
+      Printf.sprintf
+        "liveview_action(event, \"%s\", event.target.value)"
+        (t.string_of_action a)
+    in
+    Tyxml_html.a_oninput js
+
 end
 
 module type Component = sig
@@ -58,7 +67,60 @@ module Counter = struct
     ]
 end
 
-module C : Component = Counter
+module Input = struct
+  type state = Input of string
+
+  let init s = Input s
+
+  type action = Update of string
+
+  module ActionParser = struct
+    open Angstrom
+
+    let update_parser =
+      string "update|" *> take_while (fun c -> c <> '\n') >>| fun s -> Update s
+
+    let action_parser =
+      choice [update_parser]
+
+    let parse s =
+      parse_string ~consume:Consume.All action_parser s
+  end
+
+  let action_of_string s =
+    match ActionParser.parse s with
+    | Error _ -> None
+    | Ok a -> Some a
+
+  let string_of_action = function
+    | Update s -> "update|" ^ s
+
+  let apply (Input _s) = function
+    | Update (s) -> Input s
+
+  type out = [`Div]
+
+  let render ctx (Input s) =
+    (* TODO next. We have an issue here. In my current thinking, actions are
+     * serialized client side. Works with for null-ary action variants, see
+     * Counter. Does not work for n-ary action variants, like here, because the
+     * action value cannot even be constructed client side. It's an OCaml value
+     * after all.
+     * Knee-jerk reaction is to serialize and transfer the event instead. The
+     * html would then be 'subscribe to this input' instead of 'inject this
+     * action'. This would then need some resolution mechanism, to map
+     * subscriptions to actions (in the right component) server side. *)
+    let open Tyxml.Html in
+    let open Context in
+    div [
+      form ~a:[a_action "."; a_method `Post] [
+        input ~a:[a_input_type `Text; a_oninput ctx (fun s -> Update s); a_value s] ();
+        ]
+    ]
+end
+
+module _ : Component = Counter
+module _ : Component = Input
 
 (* In some way or another, the initial state has to be persisted across
  * requests; from initial page load to websocket open. There are a couple of
