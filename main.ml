@@ -27,7 +27,7 @@ end
 module Counter = struct
   type state = Counter of int
 
-  let init () = Counter 42
+  let init n = Counter n
 
   type action = Incr | Decr
 
@@ -60,7 +60,46 @@ end
 
 module C : Component = Counter
 
-let dream_tyxml ~csrf_token x =
+(* In some way or another, the initial state has to be persisted across
+ * requests; from initial page load to websocket open. There are a couple of
+ * options:
+ * - client side: cookie or query parameters to the websocket request, maybe
+ *   encrypted and/or signed.
+ * - server side: session data in memory or some distributed store like redis
+ * I guess this decision is best left to the user. Have to provide a suitable
+ * API though.
+ *
+ * One somewhat sensible approach might be to put all query params from the
+ * page load onto the websocket as well. This should get us pretty far.
+ * Problems will arise if the page load is indeterministic, think randomness or
+ * updates to the backend db by other clients between page load and web socket
+ * open.
+ *
+ * begin state init logic
+ * *)
+
+let parse_query_n req =
+  match Dream.query req "n" with
+  | None -> 42
+  | Some x ->
+    match int_of_string_opt x with
+    | None -> 42
+    | Some x -> x
+
+let persist_state Counter.(Counter n) =
+  [ `Query "n",  string_of_int n ]
+
+let initial_state req : Counter.state =
+  parse_query_n req |> Counter.init
+
+let reproduce_initial_state req : Counter.state =
+  parse_query_n req |> Counter.init
+
+(* end state init logic *)
+
+let dream_tyxml ?(ws_query=[]) ~csrf_token x =
+  let _ = ws_query (* put query params into ws_url below to support state
+                      transition from page load to websocket open *) in
   let js = Printf.sprintf "
     console.log('js: hello js');
     const loc = window.location;
@@ -125,24 +164,6 @@ let dream_tyxml ~csrf_token x =
   let str = Format.asprintf "%a" (Tyxml.Html.pp ()) html in
   Dream.html str
 
-let get_state req =
-  match Dream.session_field req "state" with
-  | None -> Counter.init ()
-  | Some str -> Marshal.from_string str 0
-
-let put_state req state =
-  Dream.set_session_field req "state" (Marshal.to_string state [])
-
-let action_handler req action =
-  match Counter.action_of_string action with
-    | Some action ->
-        let state = get_state req in
-        let state' = Counter.apply state action in
-        let%lwt () = put_state req state' in
-        Dream.redirect req "."
-    | None ->
-        Dream.redirect req "."
-
 module Message = struct
   open Angstrom
 
@@ -204,17 +225,6 @@ let liveview context state websocket =
   in loop state
 
 let get_handler req =
-  let state =
-    (* TODO How sync state from initial page render to the websocket?
-     *
-     * As is, this attempts to read the state from the session, but we never
-     * write the state to the session. So we create a new state for the
-     * websocket. No problem if Component.init is constant. But what if the
-     * start state depends on get params or the session state? Or is
-     * indeterministic even? This leads to state asynchrony between client and
-     * server. *)
-    get_state req
-  in
   let context = Context.{ string_of_action = Counter.string_of_action } in
   match Dream.header req "Upgrade" with
   | Some "websocket" ->
@@ -226,16 +236,18 @@ let get_handler req =
         | `Expired _ -> Dream.empty `Forbidden
         | `Wrong_session -> Dream.empty `Forbidden
         | `Invalid -> Dream.empty `Unauthorized
-        | `Ok -> Dream.websocket (liveview context state)
+        | `Ok ->
+          let state = reproduce_initial_state req in
+          Dream.websocket (liveview context state)
     end
   | _ ->
     let csrf_token = Dream.csrf_token req in
+    let state = initial_state req in
+    (* TODO persist state for reproduction in websocket request *)
     dream_tyxml ~csrf_token (Counter.render context state)
 
 let handler req =
-  match Dream.query req "action" with
-  | Some str -> action_handler req str
-  | None -> get_handler req
+  get_handler req
 
 let () =
   Dream.run @@ Dream.logger @@ Dream.memory_sessions handler
