@@ -74,20 +74,18 @@ module C : Component = Counter
  * Problems will arise if the page load is indeterministic, think randomness or
  * updates to the backend db by other clients between page load and web socket
  * open.
+ * ... I do this for now on the JS/client side.
  *
  * begin state init logic
  * *)
 
 let parse_query_n req =
-  match Dream.query req "n" with
+  match Dream.query req "init" with
   | None -> 42
   | Some x ->
     match int_of_string_opt x with
     | None -> 42
     | Some x -> x
-
-let persist_state Counter.(Counter n) =
-  [ `Query "n",  string_of_int n ]
 
 let initial_state req : Counter.state =
   parse_query_n req |> Counter.init
@@ -97,13 +95,17 @@ let reproduce_initial_state req : Counter.state =
 
 (* end state init logic *)
 
-let dream_tyxml ?(ws_query=[]) ~csrf_token x =
-  let _ = ws_query (* put query params into ws_url below to support state
-                      transition from page load to websocket open *) in
+let dream_tyxml ~csrf_token x =
   let js = Printf.sprintf "
     console.log('js: hello js');
     const loc = window.location;
-    const ws_url = `//${loc.host}${loc.pathname}?csrf_token=%s`;
+    const tok = '%s';
+    var ws_url;
+    if (loc.search) {
+      ws_url = `//${loc.host}${loc.pathname}${loc.search}&csrf_token=${tok}`;
+    } else {
+      ws_url = `//${loc.host}${loc.pathname}?csrf_token=${tok}`;
+    }
     const socket = new WebSocket(ws_url);
 
     socket.onmessage = function (e) {
@@ -243,7 +245,6 @@ let get_handler req =
   | _ ->
     let csrf_token = Dream.csrf_token req in
     let state = initial_state req in
-    (* TODO persist state for reproduction in websocket request *)
     dream_tyxml ~csrf_token (Counter.render context state)
 
 let handler req =
