@@ -1,22 +1,34 @@
 module Context = struct
-  type 'a t =
-    { string_of_action: 'a -> string }
+  type 'action subscription = (* internal *)
+    | OnClick of 'action
+    | OnInput of (string -> 'action)
+
+  type 'action t = (* internal *)
+    { mutable subscriptions: (int * 'action subscription) list }
+
+  let fresh () =
+    { subscriptions = [] }
+
+  let js_side_event_handler id subscription =
+    let name =
+      match subscription with
+      | OnClick _ -> "onclick"
+      | OnInput _ -> "oninput"
+    in
+    Printf.sprintf "liveview_%s(%i, event)" name id
+
+  let subscribe t s =
+    let id = List.length t.subscriptions in
+    let () =
+      t.subscriptions <- (id, s) :: t.subscriptions
+    in
+    js_side_event_handler id s
 
   let a_onclick t a =
-    let js =
-      Printf.sprintf
-        "liveview_action(event, \"%s\")"
-        (t.string_of_action a)
-    in
-    Tyxml_html.a_onclick js
+    Tyxml_html.a_onclick (subscribe t (OnClick a))
 
   let a_oninput t a =
-    let js =
-      Printf.sprintf
-        "liveview_action(event, \"%s\", event.target.value)"
-        (t.string_of_action a)
-    in
-    Tyxml_html.a_oninput js
+    Tyxml_html.a_oninput (subscribe t (OnInput a))
 
 end
 
@@ -74,6 +86,10 @@ module Input = struct
 
   type action = Update of string
 
+  module Action = struct
+    let update s = Update s
+  end
+
   module ActionParser = struct
     open Angstrom
 
@@ -101,20 +117,11 @@ module Input = struct
   type out = [`Div]
 
   let render ctx (Input s) =
-    (* TODO next. We have an issue here. In my current thinking, actions are
-     * serialized client side. Works with for null-ary action variants, see
-     * Counter. Does not work for n-ary action variants, like here, because the
-     * action value cannot even be constructed client side. It's an OCaml value
-     * after all.
-     * Knee-jerk reaction is to serialize and transfer the event instead. The
-     * html would then be 'subscribe to this input' instead of 'inject this
-     * action'. This would then need some resolution mechanism, to map
-     * subscriptions to actions (in the right component) server side. *)
     let open Tyxml.Html in
     let open Context in
     div [
       form ~a:[a_action "."; a_method `Post] [
-        input ~a:[a_input_type `Text; a_oninput ctx (fun s -> Update s); a_value s] ();
+        input ~a:[a_input_type `Text; a_oninput ctx (Action.update); a_value s] ();
         ]
     ]
 end
@@ -200,15 +207,21 @@ let dream_tyxml ~csrf_token x =
       };
     };
 
-    function send_action(action) {
-      send_message('action|' + action);
+    function liveview_handler(name, arg1) {
+      return ((id, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        var msg = name + '|' + id;
+        if (arg1) {
+          msg += '|' + arg1;
+        }
+        send_message(msg);
+      })
     };
 
-    function liveview_action(event, action) {
-      event.preventDefault();
-      event.stopPropagation();
-      send_action(action);
-    };
+    const liveview_onclick = liveview_handler('onclick')
+    const liveview_oninput = liveview_handler('oninput', e => e.target.value)
 
     console.log('js: ready js');
 
@@ -232,29 +245,46 @@ module Message = struct
   open Angstrom
 
   type t =
-    | Action of string
+    | OnClick of int
+    | OnInput of int * string
     | Info of string
 
-  let action_parser =
-    string "action|" *> take_while (fun c -> c <> '\n') >>| fun s -> Action s
+  let integer =
+    take_while1 (function '0' .. '9' -> true | _ -> false) >>= fun digits ->
+    match int_of_string_opt digits with
+    | Some i -> return i
+    | None -> fail "Invalid integer"
 
-  let info_parser =
-    string "info|" *> take_while (fun c -> c <> '\n') >>| fun s -> Info s
+  let onclick =
+    string "onclick|" *> integer >>| fun i ->
+    OnClick i
+
+  let oninput =
+    string "oninput|" *> integer >>= fun i ->
+    char '|' *> take_while (fun _ -> true) >>| fun s ->
+    OnInput (i, s)
+
+  let info =
+    string "info|" *> take_while (fun _ -> true) >>| fun s -> Info s
 
   let t_parser =
-    choice [action_parser; info_parser]
+    choice [onclick; oninput; info]
 
-  let parse msg =
-    parse_string ~consume:Consume.All t_parser msg
+  let parse_t =
+    parse_string ~consume:Consume.All t_parser
 end
 
-let liveview context state websocket =
+let liveview _context state websocket =
   let%lwt () = Dream.send websocket "hello socket" in
   let rec loop state =
     match%lwt Dream.receive websocket with
     | None -> Lwt.return ()
     | Some msg ->
-        match Message.parse msg with
+        match Message.parse_t msg with
+          (* TODO next; reimplement this for the new message type
+           * There are now events on the wire, not actions; the events have to
+           * be routed through the right subscription to obtain the action.
+           *
         | Ok (Action action) ->
           begin
           match Counter.action_of_string action with
@@ -276,6 +306,12 @@ let liveview context state websocket =
             let%lwt () = Dream.send websocket msg in
             loop state
           end
+             *)
+        | Ok (OnClick _)
+        | Ok (OnInput _) ->
+          let msg = "received event: " ^ msg in
+          let%lwt () = Dream.send websocket msg in
+          loop state
         | Ok (Info info) ->
           let msg = "received info: " ^ info in
           let%lwt () = Dream.send websocket msg in
@@ -289,7 +325,7 @@ let liveview context state websocket =
   in loop state
 
 let get_handler req =
-  let context = Context.{ string_of_action = Counter.string_of_action } in
+  let context = Context.fresh () in
   match Dream.header req "Upgrade" with
   | Some "websocket" ->
     begin
