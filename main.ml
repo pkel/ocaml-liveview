@@ -1,16 +1,33 @@
-module Context = struct
-  type 'action subscription = (* internal *)
+module Html = Tyxml.Html
+
+module Subscription = struct
+  type 'action t =
     | OnClick of 'action
     | OnInput of (string -> 'action)
+end
 
+module Context : sig
+  type 'action t
+
+  val a_onclick : 'a t -> 'a -> [> `OnClick ] Html.attrib
+  val a_oninput : 'a t -> (string -> 'a) -> [> `OnInput ] Html.attrib
+
+  type ('action, 'html) rendering =
+    { html : 'html
+    ; subscriptions: (int * 'action Subscription.t) list
+    }
+
+  val render_with_context: ('a t -> 'state -> 'html) -> 'state -> ('a, 'html) rendering
+end = struct
   type 'action t = (* internal *)
-    { mutable subscriptions: (int * 'action subscription) list }
+    { mutable subscriptions: (int * 'action Subscription.t) list }
 
   let fresh () =
     { subscriptions = [] }
 
   let js_side_event_handler id subscription =
     let name =
+      let open Subscription in
       match subscription with
       | OnClick _ -> "onclick"
       | OnInput _ -> "oninput"
@@ -25,24 +42,30 @@ module Context = struct
     js_side_event_handler id s
 
   let a_onclick t a =
-    Tyxml_html.a_onclick (subscribe t (OnClick a))
+    Html.a_onclick (subscribe t (OnClick a))
 
   let a_oninput t a =
-    Tyxml_html.a_oninput (subscribe t (OnInput a))
+    Html.a_oninput (subscribe t (OnInput a))
 
+  type ('action, 'html) rendering =
+    { html : 'html
+    ; subscriptions: (int * 'action Subscription.t) list
+    }
+
+  let render_with_context render state =
+    let context = fresh () in
+    let html = render context state (* force order of execution *) in
+    { html ; subscriptions = context.subscriptions }
 end
 
 module type Component = sig
   type state
   type action
-  type out
-
-  val action_of_string: string -> action option
-  val string_of_action: action -> string
+  type html
 
   val apply: state -> action -> state
 
-  val render: action Context.t -> state -> out Tyxml_html.elt
+  val render: action Context.t -> state -> html
 end
 
 module Counter = struct
@@ -52,23 +75,14 @@ module Counter = struct
 
   type action = Incr | Decr
 
-  let action_of_string = function
-    | "incr" -> Some Incr
-    | "decr" -> Some Decr
-    | _ -> None
-
-  let string_of_action = function
-    | Incr -> "incr"
-    | Decr -> "decr"
-
   let apply (Counter x) = function
     | Incr -> Counter (x + 1)
     | Decr -> Counter (x - 1)
 
-  type out = [`Div]
+  type html = [`Div] Html.elt
 
   let render ctx (Counter x) =
-    let open Tyxml.Html in
+    let open Html in
     let open Context in
     div [
       p [txt (string_of_int x)];
@@ -90,34 +104,13 @@ module Input = struct
     let update s = Update s
   end
 
-  module ActionParser = struct
-    open Angstrom
-
-    let update_parser =
-      string "update|" *> take_while (fun c -> c <> '\n') >>| fun s -> Update s
-
-    let action_parser =
-      choice [update_parser]
-
-    let parse s =
-      parse_string ~consume:Consume.All action_parser s
-  end
-
-  let action_of_string s =
-    match ActionParser.parse s with
-    | Error _ -> None
-    | Ok a -> Some a
-
-  let string_of_action = function
-    | Update s -> "update|" ^ s
-
   let apply (Input _s) = function
     | Update (s) -> Input s
 
-  type out = [`Div]
+  type html = [`Div] Html.elt
 
   let render ctx (Input s) =
-    let open Tyxml.Html in
+    let open Html in
     let open Context in
     div [
       form ~a:[a_action "."; a_method `Post] [
@@ -230,7 +223,7 @@ let dream_tyxml ~csrf_token x =
     " csrf_token
   in
   let html =
-    let open Tyxml.Html in
+    let open Html in
     html
       (head (title (txt "Counter")) [
           script (cdata_script js);
@@ -238,7 +231,7 @@ let dream_tyxml ~csrf_token x =
         ])
       (body [x])
   in
-  let str = Format.asprintf "%a" (Tyxml.Html.pp ()) html in
+  let str = Format.asprintf "%a" (Html.pp ()) html in
   Dream.html str
 
 module Message = struct
@@ -279,65 +272,66 @@ end
 
 let action_of_event_and_subscription event subscription =
   match event, subscription with
-  | Message.OnClick, Context.OnClick a -> Some a
+  | Message.OnClick, Subscription.OnClick a -> Some a
   | OnInput s, OnInput f -> Some (f s)
   | _ -> None
 
-let liveview init_context state websocket =
+let liveview subscriptions state websocket =
   let%lwt () = Dream.send websocket "hello socket" in
-  let rec loop (last_context : Counter.action Context.t) state =
+  let rec loop subscriptions state =
     match%lwt Dream.receive websocket with
     | None -> Lwt.return ()
     | Some msg ->
         match Message.parse_t msg with
-          (* TODO Tracking last_context might not be enough. Assume client triggers
-           * second event before the server can handle the first. This can lead
-           * to routing errors. One solution can be to maintain a ring buffer
-           * of recent subscriptions. Each event would include the lowest id
-           * still relevant; the event handler would purge all subscriptions
-           * not relevant any more.
+          (* TODO Tracking last subscriptions might not be enough. Assume
+           * client triggers second event before the server can handle the
+           * first. This can lead to routing errors. One solution can be to
+           * maintain a ring buffer of recent subscriptions. Each event would
+           * include the lowest id still relevant; the event handler would
+           * purge all subscriptions not relevant any more.
            *)
         | Ok (Event (subid, event)) ->
           let msg = "received event: " ^ msg in
           let%lwt () = Dream.send websocket msg in
           begin
-            match List.assoc_opt subid last_context.subscriptions with
+            match List.assoc_opt subid subscriptions with
             | None ->
               let msg = "error: invalid subscription id: " ^ string_of_int subid in
               let%lwt () = Dream.send websocket msg in
-              loop last_context state
+              loop subscriptions state
             | Some sub ->
               begin
                 match action_of_event_and_subscription event sub with
                 | None ->
                   let msg = "error: event/subscription mismatch: " ^ msg in
                   let%lwt () = Dream.send websocket msg in
-                  loop last_context state
+                  loop subscriptions state
                 | Some action ->
                   let state = Counter.apply state action in
-                  let context = Context.fresh () in
-                  let html = Counter.render context state in
+                  let Context.{html; subscriptions} =
+                    Context.render_with_context Counter.render state
+                  in
                   let msg =
                     let open Yojson.Safe in
-                    let upd = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) html in
+                    let upd = Format.asprintf "%a" (Html.pp_elt ()) html in
                     let obj = `Assoc [("update", `String upd)] in
                     to_string obj
                   in
                   let%lwt () = Dream.send websocket msg in
-                  loop context state
+                  loop subscriptions state
               end
           end
         | Ok (Info info) ->
           let msg = "received info: " ^ info in
           let%lwt () = Dream.send websocket msg in
-          loop last_context state
+          loop subscriptions state
         | Error emsg ->
           let msg = "error: cannot parse message: \""
                     ^ msg ^ "\": " ^ emsg
           in
           let%lwt () = Dream.send websocket msg in
-          loop last_context state
-  in loop init_context state
+          loop subscriptions state
+  in loop subscriptions state
 
 let get_handler req =
   match Dream.header req "Upgrade" with
@@ -352,21 +346,18 @@ let get_handler req =
         | `Invalid -> Dream.empty `Unauthorized
         | `Ok ->
           let state = reproduce_initial_state req in
-          let context = Context.fresh () in
-          (* TODO footgun alarm; the mutable context should be hidden; do
-           * expose a render_with_context function instead, which returns
-           * rendered html and a list of subscriptions. *)
-          let _ = Counter.render context state in
-          Dream.websocket (liveview context state)
+          let rendered =
+            Context.render_with_context Counter.render state
+          in
+          Dream.websocket (liveview rendered.subscriptions state)
     end
   | _ ->
     let csrf_token = Dream.csrf_token req in
     let state = initial_state req in
-    let context = Context.fresh () in
-    (* TODO footgun alarm; the mutable context should be hidden; do
-     * expose a render_with_context function instead, which returns
-     * rendered html and a list of subscriptions. *)
-    dream_tyxml ~csrf_token (Counter.render context state)
+    let rendered =
+      Context.render_with_context Counter.render state
+    in
+    dream_tyxml ~csrf_token rendered.html
 
 let handler req =
   get_handler req
