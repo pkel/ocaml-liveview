@@ -72,7 +72,7 @@ module Counter = struct
     let open Context in
     div [
       p [txt (string_of_int x)];
-      form ~a:[a_action "."; a_method `Post] [
+      form [
         input ~a:[a_input_type `Submit; a_onclick ctx Incr; a_value "+ Incr"] ();
         input ~a:[a_input_type `Submit; a_onclick ctx Decr; a_value "- Decr"] ()
         ]
@@ -244,9 +244,12 @@ let dream_tyxml ~csrf_token x =
 module Message = struct
   open Angstrom
 
+  type event =
+    | OnClick
+    | OnInput of string
+
   type t =
-    | OnClick of int
-    | OnInput of int * string
+    | Event of int * event
     | Info of string
 
   let integer =
@@ -257,12 +260,12 @@ module Message = struct
 
   let onclick =
     string "onclick|" *> integer >>| fun i ->
-    OnClick i
+    Event (i, OnClick)
 
   let oninput =
     string "oninput|" *> integer >>= fun i ->
     char '|' *> take_while (fun _ -> true) >>| fun s ->
-    OnInput (i, s)
+    Event (i, OnInput s)
 
   let info =
     string "info|" *> take_while (fun _ -> true) >>| fun s -> Info s
@@ -274,58 +277,69 @@ module Message = struct
     parse_string ~consume:Consume.All t_parser
 end
 
-let liveview _context state websocket =
+let action_of_event_and_subscription event subscription =
+  match event, subscription with
+  | Message.OnClick, Context.OnClick a -> Some a
+  | OnInput s, OnInput f -> Some (f s)
+  | _ -> None
+
+let liveview init_context state websocket =
   let%lwt () = Dream.send websocket "hello socket" in
-  let rec loop state =
+  let rec loop (last_context : Counter.action Context.t) state =
     match%lwt Dream.receive websocket with
     | None -> Lwt.return ()
     | Some msg ->
         match Message.parse_t msg with
-          (* TODO next; reimplement this for the new message type
-           * There are now events on the wire, not actions; the events have to
-           * be routed through the right subscription to obtain the action.
-           *
-        | Ok (Action action) ->
-          begin
-          match Counter.action_of_string action with
-          | Some action ->
-            let state = Counter.apply state action in
-            let html = Counter.render context state in
-            let msg =
-              let open Yojson.Safe in
-              let upd = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) html in
-              let obj = `Assoc [("update", `String upd)] in
-              to_string obj
-            in
-            let%lwt () = Dream.send websocket msg in
-            loop state
-          | None ->
-            let msg = "error: unknown action: \""
-                      ^ action ^ "\""
-            in
-            let%lwt () = Dream.send websocket msg in
-            loop state
-          end
-             *)
-        | Ok (OnClick _)
-        | Ok (OnInput _) ->
+          (* TODO Tracking last_context might not be enough. Assume client triggers
+           * second event before the server can handle the first. This can lead
+           * to routing errors. One solution can be to maintain a ring buffer
+           * of recent subscriptions. Each event would include the lowest id
+           * still relevant; the event handler would purge all subscriptions
+           * not relevant any more.
+           *)
+        | Ok (Event (subid, event)) ->
           let msg = "received event: " ^ msg in
           let%lwt () = Dream.send websocket msg in
-          loop state
+          begin
+            match List.assoc_opt subid last_context.subscriptions with
+            | None ->
+              let msg = "error: invalid subscription id: " ^ string_of_int subid in
+              let%lwt () = Dream.send websocket msg in
+              loop last_context state
+            | Some sub ->
+              begin
+                match action_of_event_and_subscription event sub with
+                | None ->
+                  let msg = "error: event/subscription mismatch: " ^ msg in
+                  let%lwt () = Dream.send websocket msg in
+                  loop last_context state
+                | Some action ->
+                  let state = Counter.apply state action in
+                  let context = Context.fresh () in
+                  let html = Counter.render context state in
+                  let msg =
+                    let open Yojson.Safe in
+                    let upd = Format.asprintf "%a" (Tyxml.Html.pp_elt ()) html in
+                    let obj = `Assoc [("update", `String upd)] in
+                    to_string obj
+                  in
+                  let%lwt () = Dream.send websocket msg in
+                  loop context state
+              end
+          end
         | Ok (Info info) ->
           let msg = "received info: " ^ info in
           let%lwt () = Dream.send websocket msg in
-          loop state
+          loop last_context state
         | Error emsg ->
           let msg = "error: cannot parse message: \""
                     ^ msg ^ "\": " ^ emsg
           in
           let%lwt () = Dream.send websocket msg in
-          loop state
-  in loop state
+          loop last_context state
+  in loop init_context state
 
 let get_handler req =
-  let context = Context.fresh () in
   match Dream.header req "Upgrade" with
   | Some "websocket" ->
     begin
@@ -338,11 +352,20 @@ let get_handler req =
         | `Invalid -> Dream.empty `Unauthorized
         | `Ok ->
           let state = reproduce_initial_state req in
+          let context = Context.fresh () in
+          (* TODO footgun alarm; the mutable context should be hidden; do
+           * expose a render_with_context function instead, which returns
+           * rendered html and a list of subscriptions. *)
+          let _ = Counter.render context state in
           Dream.websocket (liveview context state)
     end
   | _ ->
     let csrf_token = Dream.csrf_token req in
     let state = initial_state req in
+    let context = Context.fresh () in
+    (* TODO footgun alarm; the mutable context should be hidden; do
+     * expose a render_with_context function instead, which returns
+     * rendered html and a list of subscriptions. *)
     dream_tyxml ~csrf_token (Counter.render context state)
 
 let handler req =
