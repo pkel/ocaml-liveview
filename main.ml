@@ -18,6 +18,9 @@ module Context : sig
     }
 
   val render_with_context: ('a t -> 'state -> 'html) -> 'state -> ('a, 'html) rendering
+
+  val component: ('a t) -> ('b -> 'a)  -> ('b t -> 'state -> 'html) -> 'state -> 'html
+
 end = struct
   type 'action t = (* internal *)
     { mutable subscriptions: (int * 'action Subscription.t) list }
@@ -47,6 +50,29 @@ end = struct
   let a_oninput t a =
     Html.a_oninput (subscribe t (OnInput a))
 
+  let component t wrap_action render state =
+    (* TODO next: sub-component rendering works on initial page load but that's
+     * it. Event/subscription routing is not implemented. Also, eventually we
+     * want to support two modes; recursive for initial page load and flat to
+     * transmit only the updated html of individual components.
+     *)
+    let html, subscriptions =
+      let ctx = fresh () in
+      let html = render ctx state in
+      html, ctx.subscriptions
+    in
+    let () =
+      List.iter (fun (id, sub) ->
+          let add sub =
+            t.subscriptions <- (id, sub) :: t.subscriptions
+          in
+          match sub with
+          | Subscription.OnClick a -> add (OnClick (wrap_action a))
+          | OnInput f -> add (OnInput (fun s -> wrap_action (f s)))
+        ) subscriptions
+    in
+    html
+
   type ('action, 'html) rendering =
     { html : 'html
     ; subscriptions: (int * 'action Subscription.t) list
@@ -56,6 +82,7 @@ end = struct
     let context = fresh () in
     let html = render context state (* force order of execution *) in
     { html ; subscriptions = context.subscriptions }
+
 end
 
 module type Component = sig
@@ -119,8 +146,44 @@ module Input = struct
     ]
 end
 
+module App = struct
+  type state =
+    { counter: Counter.state
+    ; input: Input.state
+    }
+
+  let init ~n ~s = { counter = Counter.init n; input = Input.init s }
+
+  type action =
+    | Counter of Counter.action
+    | Input of Input.action
+
+  module Action = struct
+    let counter x = Counter x
+    let input x = Input x
+  end
+
+  type html = [`Div] Html.elt
+
+  let apply state = function
+    | Counter a ->
+      { state with counter = Counter.apply state.counter a }
+    | Input a ->
+      { state with input = Input.apply state.input a }
+
+  let render ctx state =
+    let open Html in
+    let open Context in
+    div [
+      component ctx Action.counter Counter.render state.counter;
+      component ctx Action.input Input.render state.input;
+    ]
+
+end
+
 module _ : Component = Counter
 module _ : Component = Input
+module _ : Component = App
 
 (* In some way or another, the initial state has to be persisted across
  * requests; from initial page load to websocket open. There are a couple of
@@ -141,19 +204,25 @@ module _ : Component = Input
  * begin state init logic
  * *)
 
+let parse_query_s req =
+  match Dream.query req "s" with
+  | None -> ""
+  | Some s -> s
+
 let parse_query_n req =
-  match Dream.query req "init" with
+  match Dream.query req "n" with
   | None -> 42
   | Some x ->
     match int_of_string_opt x with
     | None -> 42
     | Some x -> x
 
-let initial_state req : Counter.state =
-  parse_query_n req |> Counter.init
+let initial_state req : App.state =
+  let n = parse_query_n req
+  and s = parse_query_s req in
+  App.init ~n ~s
 
-let reproduce_initial_state req : Counter.state =
-  parse_query_n req |> Counter.init
+let reproduce_initial_state = initial_state
 
 (* end state init logic *)
 
@@ -207,7 +276,7 @@ let dream_tyxml ~csrf_token x =
 
         var msg = name + '|' + id;
         if (arg1) {
-          msg += '|' + arg1;
+          msg += '|' + arg1(event);
         }
         send_message(msg);
       })
@@ -307,9 +376,9 @@ let liveview subscriptions state websocket =
                   let%lwt () = Dream.send websocket msg in
                   loop subscriptions state
                 | Some action ->
-                  let state = Counter.apply state action in
+                  let state = App.apply state action in
                   let Context.{html; subscriptions} =
-                    Context.render_with_context Counter.render state
+                    Context.render_with_context App.render state
                   in
                   let msg =
                     let open Yojson.Safe in
@@ -347,7 +416,7 @@ let get_handler req =
         | `Ok ->
           let state = reproduce_initial_state req in
           let rendered =
-            Context.render_with_context Counter.render state
+            Context.render_with_context App.render state
           in
           Dream.websocket (liveview rendered.subscriptions state)
     end
@@ -355,7 +424,7 @@ let get_handler req =
     let csrf_token = Dream.csrf_token req in
     let state = initial_state req in
     let rendered =
-      Context.render_with_context Counter.render state
+      Context.render_with_context App.render state
     in
     dream_tyxml ~csrf_token rendered.html
 
