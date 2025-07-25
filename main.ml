@@ -185,6 +185,82 @@ module _ : Component = Counter
 module _ : Component = Input
 module _ : Component = App
 
+module ExploreBonsaiApi = struct
+  open! Core
+  module Bonsai = Bonsai.Cont
+  open Bonsai.Let_syntax
+
+  module LiveHtml = struct
+    type context = (* TODO hide *){ dummy : unit }
+
+    let fresh_context () = { dummy = () }
+
+    include Html
+
+    let a_onclick ~(context: context) inject =
+      let _ = context, inject in
+      a_onclick ""
+
+    let component ~(context: context) elts =
+      let _ = context in
+      div ~a:[a_id "liveview-component-0"] elts
+  end
+
+  module Counter = struct
+
+    module Action = struct
+      type t =
+        | Increment
+        | Decrement
+      [@@deriving sexp_of]
+    end
+
+    let component ~context ~start graph : [`Div] Html.elt Bonsai.t =
+      let state, inject =
+        Bonsai.state_machine0
+          graph
+          ~sexp_of_model:[%sexp_of: Int.t]
+          ~equal:[%equal: Int.t]
+          ~sexp_of_action:[%sexp_of: Action.t]
+          ~default_model:start
+          ~apply_action:(fun (_ : _ Bonsai.Apply_action_context.t) model -> function
+          | Action.Increment -> model + 1
+          | Action.Decrement -> model - 1)
+      in
+      let%arr state and inject in
+      let open LiveHtml in
+      let _ = inject in
+      let button label_ action =
+        button
+          ~a:[ a_onclick ~context (fun () -> inject action) ]
+          [ txt label_ ]
+      in
+      component ~context
+        [ button "-1" Action.Decrement
+        ; txt (Int.to_string state)
+        ; button "+1" Action.Increment
+        ]
+
+  end
+
+  let test () =
+    let bonsai =
+      let context = LiveHtml.fresh_context () in
+      Counter.component ~context ~start:42
+    and clock =
+      let now = Core.Time_ns.now () in
+      Bonsai.Time_source.create ~start:now
+    in
+    let open Bonsai_driver in
+    let driver = create ~clock bonsai in
+    let () = flush driver in
+    let r = result driver in
+    let () = trigger_lifecycles driver in
+    r
+
+
+end
+
 (* In some way or another, the initial state has to be persisted across
  * requests; from initial page load to websocket open. There are a couple of
  * options:

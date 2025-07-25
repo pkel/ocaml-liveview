@@ -1,4 +1,4 @@
 (executable
  (name main)
- (libraries dream tyxml)
- (preprocess (pps lwt_ppx)))
+ (libraries bonsai bonsai.driver dream tyxml)
+ (preprocess (pps lwt_ppx bonsai.ppx_bonsai ppx_jane ppx_pattern_bind)))
