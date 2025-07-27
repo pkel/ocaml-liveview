@@ -14,7 +14,7 @@ module Context : sig
 
   type ('action, 'html) rendering =
     { html : 'html
-    ; subscriptions: (int * 'action Subscription.t) list
+    ; subscriptions: (string * 'action Subscription.t) list
     }
 
   val render_with_context: ('a t -> 'state -> 'html) -> 'state -> ('a, 'html) rendering
@@ -23,7 +23,7 @@ module Context : sig
 
 end = struct
   type 'action t = (* internal *)
-    { mutable subscriptions: (int * 'action Subscription.t) list }
+    { mutable subscriptions: (string * 'action Subscription.t) list }
 
   let fresh () =
     { subscriptions = [] }
@@ -35,10 +35,10 @@ end = struct
       | OnClick _ -> "onclick"
       | OnInput _ -> "oninput"
     in
-    Printf.sprintf "liveview_%s(%i, event)" name id
+    Printf.sprintf "liveview_%s('%s', event)" name id
 
   let subscribe t s =
-    let id = List.length t.subscriptions in
+    let id = Printf.sprintf "pre-bonsai-%i" (List.length t.subscriptions) in
     let () =
       t.subscriptions <- (id, s) :: t.subscriptions
     in
@@ -75,7 +75,7 @@ end = struct
 
   type ('action, 'html) rendering =
     { html : 'html
-    ; subscriptions: (int * 'action Subscription.t) list
+    ; subscriptions: (string * 'action Subscription.t) list
     }
 
   let render_with_context render state =
@@ -191,17 +191,43 @@ module ExploreBonsaiApi = struct
   open Bonsai.Let_syntax
 
   module LiveHtml = struct
-    type context = (* TODO hide *){ dummy : unit }
+    type 'a handler = 'a -> unit Ui_effect.t
 
-    let fresh_context () = { dummy = () }
+    type subscription =
+      | OnClick of unit handler
+      | OnInput of string handler
+
+    type context = (* TODO hide *){
+      mutable subscriptions : (string * subscription) list
+    }
+
+    let fresh_context () = { subscriptions = [] }
 
     include Html
 
-    let a_onclick ~(context: context) inject =
-      let _ = context, inject in
-      a_onclick ""
+    let js_side_event_handler id subscription =
+      let name =
+        match subscription with
+        | OnClick _ -> "onclick"
+        | OnInput _ -> "oninput"
+      in
+      Printf.sprintf "liveview_%s('%s', event)" name id
+
+    let a_onclick ~(context: context) inject action graph =
+      let%arr inject
+      and id = Bonsai.path_id graph
+      in
+      let sub = OnClick (fun () -> inject action) in
+      let () =
+        context.subscriptions <- (id, sub) :: context.subscriptions
+      in
+      a_onclick (js_side_event_handler id sub)
 
     let component ~(context: context) elts =
+      (* TODO return subscriptions as part of Bonsai.t *)
+      (* TODO leverage Bonsai's graph argument; it's only available at startup,
+         during construction of the compute graph; the same should hold for
+         context here. *)
       let _ = context in
       div ~a:[a_id "liveview-component-0"] elts
   end
@@ -215,7 +241,7 @@ module ExploreBonsaiApi = struct
       [@@deriving sexp_of]
     end
 
-    let component ~context ~start graph : [`Div] Html.elt Bonsai.t =
+    let component ~context ~start graph : [> `Div] Html.elt Bonsai.t =
       let state, inject =
         Bonsai.state_machine0
           graph
@@ -227,20 +253,21 @@ module ExploreBonsaiApi = struct
           | Action.Increment -> model + 1
           | Action.Decrement -> model - 1)
       in
-      let%arr state and inject in
       let open LiveHtml in
-      let _ = inject in
       let button label_ action =
-        button
-          ~a:[ a_onclick ~context (fun () -> inject action) ]
-          [ txt label_ ]
+        let%arr onclick =
+          a_onclick ~context inject action graph
+        in
+        button ~a:[ onclick ] [ txt label_ ]
       in
+      let%arr state
+      and decr = button "-1" Action.Decrement
+      and incr = button "+1" Action.Increment in
       component ~context
-        [ button "-1" Action.Decrement
+        [ decr
         ; txt (Int.to_string state)
-        ; button "+1" Action.Increment
+        ; incr
         ]
-
   end
 
   let test () =
@@ -257,8 +284,6 @@ module ExploreBonsaiApi = struct
     let r = result driver in
     let () = trigger_lifecycles driver in
     r
-
-
 end
 
 (* In some way or another, the initial state has to be persisted across
@@ -380,6 +405,8 @@ let dream_tyxml ~csrf_token x =
   Dream.html str
 
 module Message = struct
+  (* TODO use json as message format *)
+
   open Angstrom
 
   type event =
@@ -387,21 +414,17 @@ module Message = struct
     | OnInput of string
 
   type t =
-    | Event of int * event
+    | Event of string * event
     | Info of string
 
-  let integer =
-    take_while1 (function '0' .. '9' -> true | _ -> false) >>= fun digits ->
-    match int_of_string_opt digits with
-    | Some i -> return i
-    | None -> fail "Invalid integer"
+  let id = take_while (fun c -> c <> '|')
 
   let onclick =
-    string "onclick|" *> integer >>| fun i ->
+    string "onclick|" *> id >>| fun i ->
     Event (i, OnClick)
 
   let oninput =
-    string "oninput|" *> integer >>= fun i ->
+    string "oninput|" *> id >>= fun i ->
     char '|' *> take_while (fun _ -> true) >>| fun s ->
     Event (i, OnInput s)
 
@@ -421,7 +444,27 @@ let action_of_event_and_subscription event subscription =
   | OnInput s, OnInput f -> Some (f s)
   | _ -> None
 
+let effect_of_event_and_sub event sub =
+  match event, sub with
+  | Message.OnClick, ExploreBonsaiApi.LiveHtml.OnClick f -> Some (f ())
+  | OnInput s, OnInput f -> Some (f s)
+  | _ -> None
+
 let liveview subscriptions state websocket =
+  let bonsai_driver, bonsai_subscriptions =
+    let open ExploreBonsaiApi in
+    let context = LiveHtml.fresh_context () in
+    let bonsai =
+      Counter.component ~context ~start:42
+    and clock =
+      let now = Core.Time_ns.now () in
+      Bonsai.Time_source.create ~start:now
+    in
+    let open Bonsai_driver in
+    let driver = create ~clock bonsai in
+    let () = flush driver in
+    driver, context.subscriptions
+  in
   let%lwt () = Dream.send websocket "hello socket" in
   let rec loop subscriptions state =
     match%lwt Dream.receive websocket with
@@ -440,10 +483,6 @@ let liveview subscriptions state websocket =
           let%lwt () = Dream.send websocket msg in
           begin
             match List.assoc_opt subid subscriptions with
-            | None ->
-              let msg = "error: invalid subscription id: " ^ string_of_int subid in
-              let%lwt () = Dream.send websocket msg in
-              loop subscriptions state
             | Some sub ->
               begin
                 match action_of_event_and_subscription event sub with
@@ -456,6 +495,9 @@ let liveview subscriptions state websocket =
                   let Context.{html; subscriptions} =
                     Context.render_with_context App.render state
                   in
+                  let html =
+                    Html.div [ html; Html.hr (); Bonsai_driver.result bonsai_driver ]
+                  in
                   let msg =
                     let open Yojson.Safe in
                     let upd = Format.asprintf "%a" (Html.pp_elt ()) html in
@@ -464,6 +506,42 @@ let liveview subscriptions state websocket =
                   in
                   let%lwt () = Dream.send websocket msg in
                   loop subscriptions state
+              end
+            | None ->
+              begin match List.assoc_opt subid bonsai_subscriptions with
+              | Some sub ->
+                begin match effect_of_event_and_sub event sub with
+                | None ->
+                  let msg = "error: event/subscription mismatch: " ^ msg in
+                  let%lwt () = Dream.send websocket msg in
+                  loop subscriptions state
+                | Some effect ->
+                  let result =
+                    let open Bonsai_driver in
+                    schedule_event bonsai_driver effect;
+                    flush bonsai_driver;
+                    result bonsai_driver
+                  in
+                  let Context.{html; subscriptions} =
+                    Context.render_with_context App.render state
+                  in
+                  let html =
+                    Html.div [ html; Html.hr (); result ]
+                  in
+                  let msg =
+                    let open Yojson.Safe in
+                    let upd = Format.asprintf "%a" (Html.pp_elt ()) html in
+                    let obj = `Assoc [("update", `String upd)] in
+                    to_string obj
+                  in
+                  let%lwt () = Dream.send websocket msg in
+                  let () = Bonsai_driver.trigger_lifecycles bonsai_driver in
+                  loop subscriptions state
+                end
+              | None ->
+                let msg = "error: invalid subscription id: " ^ subid in
+                let%lwt () = Dream.send websocket msg in
+                loop subscriptions state
               end
           end
         | Ok (Info info) ->
@@ -500,9 +578,15 @@ let get_handler req =
     let csrf_token = Dream.csrf_token req in
     let state = initial_state req in
     let rendered =
-      Context.render_with_context App.render state
+      let pre_bonsai =
+        (Context.render_with_context App.render state).html
+      and bonsai =
+        ExploreBonsaiApi.test ()
+      in
+      let open Html in
+      div [pre_bonsai; hr (); bonsai ]
     in
-    dream_tyxml ~csrf_token rendered.html
+    dream_tyxml ~csrf_token rendered
 
 let handler req =
   get_handler req
