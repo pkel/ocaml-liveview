@@ -203,7 +203,11 @@ module ExploreBonsaiApi = struct
 
     type 'a component
 
-    val component: [< Html_types.div_content_fun ] Html.elt list -> context -> [> ` Div ] component Bonsai.t
+    type component_id
+
+    val component_id: context -> component_id Bonsai.t
+
+    val component: component_id -> [< Html_types.div_content_fun ] Html.elt list -> [> ` Div ] component
 
     type 'a app = 'a component Bonsai_driver.t (* TODO hide *)
 
@@ -216,6 +220,7 @@ module ExploreBonsaiApi = struct
       include module type of Html
 
       val a_onclick : inject:('a handler Bonsai.t) -> 'a -> context ->  [> `OnClick ] attrib Bonsai.t
+      (* TODO next. Get rid of Bonsai.t here. It'll help probably to put the component_id into the context or component *)
 
       val sub_component : 'a component -> 'a Html.elt
     end
@@ -238,6 +243,12 @@ module ExploreBonsaiApi = struct
       html :  'a Html.elt;
       subscriptions :  (string * subscription) list
     }
+
+    type component_id = Component_id of string
+
+    let component_id ctx =
+      let%arr id = Bonsai.path_id ctx.graph in
+      Component_id id
 
     module Html = struct
       include Html
@@ -263,18 +274,17 @@ module ExploreBonsaiApi = struct
       let sub_component x = x.html
     end
 
-    let component elts ctx =
+    let component (Component_id id) elts =
       (* TODO return subscriptions as part of Bonsai.t *)
       (* DONE leverage Bonsai's graph argument; it's only available at startup,
          during construction of the compute graph; the same should hold for
          context here. *)
-      let%arr id = Bonsai.path_id ctx.graph in
       let html =
         let open Html in
         div ~a:[a_id id] elts
       in
       { html = html
-      ; subscriptions = ctx.subscriptions }
+      ; subscriptions = [] (* TODO *) }
 
     type 'a app = 'a component Bonsai_driver.t (* TODO hide *)
 
@@ -325,22 +335,24 @@ module ExploreBonsaiApi = struct
       in
       let%sub decr = button "-1" Action.Decrement in
       let%sub incr = button "+1" Action.Increment in
-      let%arr decr and incr and state in
-      (* TODO next; I need bind here but it's not available *)
-      component
+      let%sub id = component_id ctx in
+      let%arr decr and incr and state and id in
+      component id
         [ decr
         ; txt (Int.to_string state)
         ; incr
-        ] ctx
+        ]
   end
 
   let main context =
+    let open LiveView in
     let%sub one = Counter.component ~start:42 context in
     let%sub two = Counter.component ~start:13 context in
-    let%arr one and two in
-    let open LiveView in
+    let%sub three = Counter.component ~start:21 context in
+    let%sub id = component_id context in
+    let%arr one and two and three and id in
     let open Html in
-    component [ sub_component one; sub_component two ] context
+    component id [ sub_component one; sub_component two ; sub_component three ]
 
   let test () =
     let driver = LiveView.app main in
