@@ -85,11 +85,21 @@ end = struct
   end
 
   let component id render =
+    (* incremental computation seems to work server-side, see printf debugging
+       TODO next. push incremental updates to client
+       - accept bool argument, put into context
+       - if true: render sub-components without child elements
+       - if true: send html to client
+       - if false: logic as is
+       - prepare client side morphdom logic to skip sub-components
+       Q: how trigger the side effect "send to client"?
+     *)
+    let () = Dream.log "%s: render" id in
     let ctx : context = { component_id = id; subscriptions = [] } in
     let elts = render ctx in
     let html =
       let open Html in
-      div ~a:[a_id ctx.component_id] elts
+      div ~a:[a_id id] elts
     in
     { html = html
     ; subscriptions = ctx.subscriptions }
@@ -396,6 +406,7 @@ let liveview main websocket =
                 loop ()
               | Some effect ->
                 let () =
+                  Dream.log "%s: activate" subid;
                   (* TODO hide Bonsai_driver logic here *)
                   let open Bonsai_driver in
                   schedule_event bonsai_app effect;
