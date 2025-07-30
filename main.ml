@@ -193,36 +193,32 @@ module ExploreBonsaiApi = struct
   module LiveView : sig
     type 'a handler = 'a -> unit Bonsai.Effect.t
 
-    type subscription =
+    type subscription = (* TODO hide implementation *)
       | OnClick of unit handler
       | OnInput of string handler
 
     type context
 
-    val graph : context -> Bonsai.graph
-
     type 'a component
 
-    type component_id
+    val component: string -> (context -> [< Html_types.div_content_fun ] Html.elt list) -> [> ` Div ] component
+    (* TODO first argument is component's id (Bonsai.path_id). Hide this technicality here *)
 
-    val component_id: context -> component_id Bonsai.t
+    type 'a app = 'a component Bonsai_driver.t (* TODO hide, expose variants of Bonsai_driver.* functions instead *)
 
-    val component: component_id -> [< Html_types.div_content_fun ] Html.elt list -> [> ` Div ] component
+    val app: (Bonsai.graph -> 'a component Bonsai.t) -> 'a app
 
-    type 'a app = 'a component Bonsai_driver.t (* TODO hide *)
+    val html: 'a app -> 'a Html.elt
 
-    val app: (context -> 'a component Bonsai.t) -> 'a app
-
-    val html: 'a component -> 'a Html.elt (* TODO take app instead of component *)
-    val subscriptions: 'a component -> (string * subscription) list (* TODO take app instead of component *)
+    val subscriptions: 'a app -> (string * subscription) list (* TODO remove when hiding app type *)
 
     module Html : sig
       include module type of Html
 
-      val a_onclick : inject:('a handler Bonsai.t) -> 'a -> context ->  [> `OnClick ] attrib Bonsai.t
-      (* TODO next. Get rid of Bonsai.t here. It'll help probably to put the component_id into the context or component *)
+      val a_onclick : context -> unit handler ->  [> `OnClick ] attrib
+      val a_oninput : context -> string handler ->  [> `OnInput ] attrib
 
-      val sub_component : 'a component -> 'a Html.elt
+      val sub_component : context -> 'a component -> 'a Html.elt
     end
 
   end = struct
@@ -233,22 +229,17 @@ module ExploreBonsaiApi = struct
       | OnInput of string handler
 
     type context = {
-      graph: Bonsai.graph;
+      component_id: string;
       mutable subscriptions : (string * subscription) list
     }
 
-    let graph x = x.graph
+    let add_subscription ctx id sub =
+        ctx.subscriptions <- (id, sub) :: ctx.subscriptions
 
     type 'a component = {
       html :  'a Html.elt;
       subscriptions :  (string * subscription) list
     }
-
-    type component_id = Component_id of string
-
-    let component_id ctx =
-      let%arr id = Bonsai.path_id ctx.graph in
-      Component_id id
 
     module Html = struct
       include Html
@@ -261,46 +252,52 @@ module ExploreBonsaiApi = struct
         in
         Printf.sprintf "liveview_%s('%s', event)" name id
 
-      let a_onclick ~inject action ctx =
-        let%arr inject
-        and id = Bonsai.path_id ctx.graph
-        in
-        let sub = OnClick (fun () -> inject action) in
-        let () =
-          ctx.subscriptions <- (id, sub) :: ctx.subscriptions
-        in
+      let a_onclick (ctx: context) handler =
+        let len = List.length ctx.subscriptions in
+        let id = Printf.sprintf "%s:%i" ctx.component_id len in
+        let sub = OnClick handler in
+        add_subscription ctx id sub;
         a_onclick (js_side_event_handler id sub)
 
-      let sub_component x = x.html
+      let a_oninput (ctx: context) handler =
+        let len = List.length ctx.subscriptions in
+        let id = Printf.sprintf "%s:%i" ctx.component_id len in
+        let sub = OnInput handler in
+        add_subscription ctx id sub;
+        a_oninput (js_side_event_handler id sub)
+
+      let sub_component ctx c =
+        List.iter ~f:(fun (id, sub) -> add_subscription ctx id sub) c.subscriptions;
+        c.html
+
     end
 
-    let component (Component_id id) elts =
-      (* TODO return subscriptions as part of Bonsai.t *)
-      (* DONE leverage Bonsai's graph argument; it's only available at startup,
-         during construction of the compute graph; the same should hold for
-         context here. *)
+    let component id render =
+      let ctx : context = { component_id = id; subscriptions = [] } in
+      let elts = render ctx in
       let html =
         let open Html in
-        div ~a:[a_id id] elts
+        div ~a:[a_id ctx.component_id] elts
       in
       { html = html
-      ; subscriptions = [] (* TODO *) }
+      ; subscriptions = ctx.subscriptions }
 
     type 'a app = 'a component Bonsai_driver.t (* TODO hide *)
 
-    let app component =
-      let fresh_context graph = { graph; subscriptions = [] } in
-      let bonsai graph : _ component Bonsai.t =
-        let context = fresh_context graph in
-        component context
-      and clock =
+    let app bonsai =
+      let clock =
         let now = Core.Time_ns.now () in
         Bonsai.Time_source.create ~start:now
       in
       Bonsai_driver.create ~clock bonsai
 
-    let html x = x.html
-    let subscriptions x = x.subscriptions
+    let html x =
+      let r = Bonsai_driver.result x in
+      r.html
+
+    let subscriptions x =
+      let r = Bonsai_driver.result x in
+      r.subscriptions
 
   end
 
@@ -314,10 +311,10 @@ module ExploreBonsaiApi = struct
       [@@deriving sexp_of]
     end
 
-    let component ~start ctx : [> `Div ] LiveView.component Bonsai.t =
+    let component ~start graph : [> `Div ] component Bonsai.t =
       let state, inject =
         Bonsai.state_machine0
-          (graph ctx)
+          graph
           ~sexp_of_model:[%sexp_of: Int.t]
           ~equal:[%equal: Int.t]
           ~sexp_of_action:[%sexp_of: Action.t]
@@ -325,34 +322,64 @@ module ExploreBonsaiApi = struct
           ~apply_action:(fun (_ : _ Bonsai.Apply_action_context.t) model -> function
           | Action.Increment -> model + 1
           | Action.Decrement -> model - 1)
+      and id = Bonsai.path_id graph
       in
-      let open LiveView.Html in
-      let button label_ action =
-        let%arr onclick =
-          a_onclick ~inject action ctx
+      let%arr state and inject and id in
+      let render ctx =
+        let open Html in
+        let button label_ action =
+          let handler () = inject action in
+          button ~a:[ a_onclick ctx handler ] [ txt label_ ]
         in
-        button ~a:[ onclick ] [ txt label_ ]
-      in
-      let%sub decr = button "-1" Action.Decrement in
-      let%sub incr = button "+1" Action.Increment in
-      let%sub id = component_id ctx in
-      let%arr decr and incr and state and id in
-      component id
-        [ decr
+        [ button "-1" Action.Decrement
         ; txt (Int.to_string state)
-        ; incr
+        ; button "+1" Action.Increment
         ]
+      in
+      component id render
   end
 
-  let main context =
+  module Input = struct
+    open LiveView
+
+    let component ~start graph : [> `Div ] component Bonsai.t =
+      let state, inject =
+        Bonsai.state_machine0
+          graph
+          ~sexp_of_model:Sexp.of_string
+          ~equal:String.equal
+          ~sexp_of_action:Sexp.of_string
+          ~default_model:start
+          ~apply_action:(fun (_ : _ Bonsai.Apply_action_context.t) _old new_ -> new_)
+      and id = Bonsai.path_id graph in
+      let%arr state and inject and id in
+      let render ctx =
+        let open Html in
+        [
+          form ~a:[a_action "."; a_method `Post] [
+            input ~a:[a_input_type `Text; a_oninput ctx inject; a_value state] ();
+            ]
+        ]
+      in component id render
+  end
+
+  let main graph =
     let open LiveView in
-    let%sub one = Counter.component ~start:42 context in
-    let%sub two = Counter.component ~start:13 context in
-    let%sub three = Counter.component ~start:21 context in
-    let%sub id = component_id context in
-    let%arr one and two and three and id in
+    let%sub one = Counter.component ~start:42 graph in
+    let%sub two = Counter.component ~start:13 graph in
+    let%sub three = Counter.component ~start:21 graph in
+    let%sub four = Input.component ~start:"hello" graph in
+    let%sub id = Bonsai.path_id graph in
+    let%arr one and two and three and four and id in
     let open Html in
-    component id [ sub_component one; sub_component two ; sub_component three ]
+    let render ctx =
+      [ sub_component ctx one
+      ; sub_component ctx two
+      ; sub_component ctx three
+      ; sub_component ctx four
+      ]
+    in
+    component id render
 
   let test () =
     let driver = LiveView.app main in
@@ -527,10 +554,8 @@ let effect_of_event_and_sub event sub =
   | OnInput s, OnInput f -> Some (f s)
   | _ -> None
 
-
 let liveview subscriptions state websocket =
-  let main = ExploreBonsaiApi.Counter.component ~start:42 in
-  let bonsai_driver = ExploreBonsaiApi.LiveView.app main in
+  let bonsai_app = ExploreBonsaiApi.(LiveView.app main) in
   let%lwt () = Dream.send websocket "hello socket" in
   let rec loop subscriptions state =
     match%lwt Dream.receive websocket with
@@ -561,8 +586,7 @@ let liveview subscriptions state websocket =
                   let Context.{html; subscriptions} =
                     Context.render_with_context App.render state
                   in
-                  let bonsai_component = Bonsai_driver.result bonsai_driver in
-                  let bonsai_html = ExploreBonsaiApi.LiveView.html bonsai_component in
+                  let bonsai_html = ExploreBonsaiApi.LiveView.html bonsai_app in
                   let html =
                     Html.div [ html; Html.hr (); bonsai_html ]
                   in
@@ -576,8 +600,7 @@ let liveview subscriptions state websocket =
                   loop subscriptions state
               end
             | None ->
-              let bonsai_component = Bonsai_driver.result bonsai_driver in
-              let bonsai_subscriptions = ExploreBonsaiApi.LiveView.subscriptions bonsai_component in
+              let bonsai_subscriptions = ExploreBonsaiApi.LiveView.subscriptions bonsai_app in
               begin match List.assoc_opt subid bonsai_subscriptions with
               | Some sub ->
                 begin match effect_of_event_and_sub event sub with
@@ -586,13 +609,13 @@ let liveview subscriptions state websocket =
                   let%lwt () = Dream.send websocket msg in
                   loop subscriptions state
                 | Some effect ->
-                  let bonsai_component =
+                  let () =
+                    (* TODO hide Bonsai_driver logic here *)
                     let open Bonsai_driver in
-                    schedule_event bonsai_driver effect;
-                    flush bonsai_driver;
-                    result bonsai_driver
+                    schedule_event bonsai_app effect;
+                    flush bonsai_app
                   in
-                  let bonsai_html = ExploreBonsaiApi.LiveView.html bonsai_component in
+                  let bonsai_html = ExploreBonsaiApi.LiveView.html bonsai_app in
                   let Context.{html; subscriptions} =
                     Context.render_with_context App.render state
                   in
@@ -606,7 +629,10 @@ let liveview subscriptions state websocket =
                     to_string obj
                   in
                   let%lwt () = Dream.send websocket msg in
-                  let () = Bonsai_driver.trigger_lifecycles bonsai_driver in
+                  let () =
+                    (* TODO hide driver logic here *)
+                    Bonsai_driver.trigger_lifecycles bonsai_app
+                  in
                   loop subscriptions state
                 end
               | None ->
@@ -652,10 +678,9 @@ let get_handler req =
     let rendered =
       let pre_bonsai =
         (Context.render_with_context App.render state).html
-      and bonsai_component =
-        ExploreBonsaiApi.test ()
+      and bonsai_app = ExploreBonsaiApi.(LiveView.app main)
       in
-      let bonsai_html = ExploreBonsaiApi.LiveView.html bonsai_component in
+      let bonsai_html = ExploreBonsaiApi.LiveView.html bonsai_app in
       let open Html in
       div [pre_bonsai; hr (); bonsai_html ]
     in
