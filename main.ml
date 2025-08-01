@@ -9,29 +9,33 @@ module LiveView : sig
     | OnClick of unit handler
     | OnInput of string handler
 
-  type context
+  type app_context
+  type html_context
 
   type 'a component
 
-  val component: string -> (context -> [< Html_types.div_content_fun ] Html.elt list) -> [> ` Div ] component
+  val component: app_context -> string -> (html_context -> [< Html_types.div_content_fun ] Html.elt list) -> [> ` Div ] component
   (* TODO first argument is component's id (Bonsai.path_id). Hide this technicality here *)
-
-  type 'a app = 'a component Bonsai_driver.t (* TODO hide, expose variants of Bonsai_driver.* functions instead *)
-
-  val app: (Bonsai.graph -> 'a component Bonsai.t) -> 'a app
-
-  val html: 'a app -> 'a Html.elt
-
-  val subscriptions: 'a app -> (string * subscription) list (* TODO remove when hiding app type *)
 
   module Html : sig
     include module type of Html
 
-    val a_onclick : context -> unit handler ->  [> `OnClick ] attrib
-    val a_oninput : context -> string handler ->  [> `OnInput ] attrib
+    val a_onclick : html_context -> unit handler ->  [> `OnClick ] attrib
+    val a_oninput : html_context -> string handler ->  [> `OnInput ] attrib
 
-    val sub_component : context -> 'a component -> 'a Html.elt
+    val sub_component : html_context -> 'a component -> 'a Html.elt
   end
+
+  val initial_html: (app_context -> Bonsai.graph -> 'a component Bonsai.t) -> 'a Html.elt
+
+  type 'a app
+
+  val app:
+    (app_context -> Bonsai.graph -> 'a component Bonsai.t) -> 'a app
+
+  val apply: 'a app -> unit Bonsai.Effect.t -> (string * string) list (* TODO clarify that this is component id and html *)
+
+  val subscriptions: 'a app -> (string * subscription) list (* TODO remove *)
 
 end = struct
   type 'a handler = 'a -> unit Bonsai.Effect.t
@@ -40,7 +44,16 @@ end = struct
     | OnClick of unit handler
     | OnInput of string handler
 
-  type context = {
+  type app_context =
+    { recurse: bool
+    ; mutable update: id:string -> html:string -> unit (* TODO use effects instead? *)
+    }
+
+  let dummy_update ~id ~html =
+    Dream.log "%s: unhandled update: %s" id html
+
+  type html_context = {
+    recurse: bool;
     component_id: string;
     mutable subscriptions : (string * subscription) list
   }
@@ -50,6 +63,7 @@ end = struct
 
   type 'a component = {
     html :  'a Html.elt;
+    hole :  'a Html.elt;
     subscriptions :  (string * subscription) list
   }
 
@@ -64,14 +78,14 @@ end = struct
       in
       Printf.sprintf "liveview_%s('%s', event)" name id
 
-    let a_onclick (ctx: context) handler =
+    let a_onclick (ctx: html_context) handler =
       let len = List.length ctx.subscriptions in
       let id = Printf.sprintf "%s:%i" ctx.component_id len in
       let sub = OnClick handler in
       add_subscription ctx id sub;
       a_onclick (js_side_event_handler id sub)
 
-    let a_oninput (ctx: context) handler =
+    let a_oninput (ctx: html_context) handler =
       let len = List.length ctx.subscriptions in
       let id = Printf.sprintf "%s:%i" ctx.component_id len in
       let sub = OnInput handler in
@@ -80,33 +94,29 @@ end = struct
 
     let sub_component ctx c =
       List.iter (fun (id, sub) -> add_subscription ctx id sub) c.subscriptions;
-      c.html
+      if ctx.recurse then c.html else c.hole
 
   end
 
-  let component id render =
-    (* incremental computation seems to work server-side, see printf debugging
-       TODO next. push incremental updates to client
-       - accept bool argument, put into context
-       - if true: render sub-components without child elements
-       - if true: send html to client
-       - if false: logic as is
-       - prepare client side morphdom logic to skip sub-components
-       Q: how trigger the side effect "send to client"?
-     *)
+  let component (ctx: app_context) id render =
     let () = Dream.log "%s: render" id in
-    let ctx : context = { component_id = id; subscriptions = [] } in
-    let elts = render ctx in
-    let html =
-      let open Html in
-      div ~a:[a_id id] elts
+    let elts, subscriptions =
+      let ctx : html_context = { component_id = id; subscriptions = []; recurse = ctx.recurse } in
+      let elts = render ctx in
+      elts, ctx.subscriptions
     in
-    { html = html
-    ; subscriptions = ctx.subscriptions }
+    let html = Html.(div ~a:[a_id id] elts) in
+    let hole = Html.(div ~a:[a_id id; a_user_data "morphdom-skip" ""] []) in
+    if not ctx.recurse then
+      (* TODO we currently send redundant updates: the entire branch from the component back to the root. Avoid! *)
+      ctx.update ~id ~html:(Format.asprintf "%a" (Html.pp_elt ()) html);
+    { html
+    ; hole
+    ; subscriptions }
 
-  type 'a app = 'a component Bonsai_driver.t (* TODO hide *)
+  type 'a app = app_context * 'a component Bonsai_driver.t
 
-  let app bonsai =
+  let driver bonsai =
     let clock =
       let now = Core.Time_ns.now () in
       Bonsai.Time_source.create ~start:now
@@ -117,8 +127,33 @@ end = struct
     let r = Bonsai_driver.result x in
     r.html
 
-  let subscriptions x =
-    let r = Bonsai_driver.result x in
+  let initial_html bonsai =
+    let context = { recurse = true; update = dummy_update } in
+    let driver = driver (bonsai context) in
+    html driver
+
+  let app bonsai =
+    let context = { recurse = false; update = dummy_update } in
+    context, driver (bonsai context)
+
+  let apply (ctx, driver) effect =
+    (* TODO can effects help clean up the accumulation of updates? *)
+    let updates = ref [] in
+    let update ~id ~html =
+      updates := (id, html) :: !updates
+    in
+    let () =
+      ctx.update <- update;
+      let open Bonsai_driver in
+      schedule_event driver effect;
+      flush driver;
+      trigger_lifecycles driver (* TODO maybe defer this *);
+      ctx.update <- dummy_update
+    in
+    !updates
+
+  let subscriptions (_, driver) =
+    let r = Bonsai_driver.result driver in
     r.subscriptions
 
 end
@@ -133,7 +168,7 @@ module Counter = struct
     [@@deriving sexp_of]
   end
 
-  let component ~start graph : [> `Div ] component Bonsai.t =
+  let component ~start ctx graph : [> `Div ] component Bonsai.t =
     let state, inject =
       Bonsai.state_machine0
         graph
@@ -158,13 +193,13 @@ module Counter = struct
       ; button "+1" Action.Increment
       ]
     in
-    component id render
+    component ctx id render
 end
 
 module Input = struct
   open LiveView
 
-  let component ~start graph : [> `Div ] component Bonsai.t =
+  let component ~start ctx graph : [> `Div ] component Bonsai.t =
     let state, inject =
       Bonsai.state_machine0
         graph
@@ -182,15 +217,15 @@ module Input = struct
           input ~a:[a_input_type `Text; a_oninput ctx inject; a_value state] ();
           ]
       ]
-    in component id render
+    in component ctx id render
 end
 
-let main ~n1 ~n2 ~n3 ~s graph =
+let main ~n1 ~n2 ~n3 ~s ctx graph =
   let open LiveView in
-  let%sub one = Counter.component ~start:n1 graph in
-  let%sub two = Counter.component ~start:n2 graph in
-  let%sub three = Counter.component ~start:n3 graph in
-  let%sub four = Input.component ~start:s graph in
+  let%sub one = Counter.component ~start:n1 ctx graph in
+  let%sub two = Counter.component ~start:n2 ctx graph in
+  let%sub three = Counter.component ~start:n3 ctx graph in
+  let%sub four = Input.component ~start:s ctx graph in
   let%sub id = Bonsai.path_id graph in
   let%arr one and two and three and four and id in
   let open Html in
@@ -201,7 +236,7 @@ let main ~n1 ~n2 ~n3 ~s graph =
     ; sub_component ctx four
     ]
   in
-  component id render
+  component ctx id render
 
 (* In some way or another, the initial state has to be persisted across
  * requests; from initial page load to websocket open. There are a couple of
@@ -273,17 +308,34 @@ let dream_tyxml ~csrf_token x =
     }
     const socket = new WebSocket(ws_url);
 
+    function patch_component(id, html) {
+      const component = document.getElementById(id);
+      morphdom(component, html, {
+        childrenOnly: true,
+        onBeforeElUpdated: (fromEl, toEl) => {
+          if (toEl.hasAttribute('data-morphdom-skip')) {
+            return false; // skip updating this element
+          } else {
+            return true;
+          };
+        },
+      });
+    };
+
     socket.onmessage = function (e) {
-      console.log('ws rcv: ' + e.data);
       var obj = false;
       try {
         obj = JSON.parse(e.data);
-      } catch (e) {}
-      if (obj && obj.hasOwnProperty('update')) {
-        const new_body = document.createElement('body');
-        new_body.innerHTML = obj.update;
-        morphdom(document.body, new_body);
+      } catch (err) {
+        console.log('ws rcv: (parse error)', e.data);
+        return;
       }
+      console.log('ws rcv:', obj);
+      if (obj && obj.hasOwnProperty('updates')) {
+        Object.keys(obj.updates).forEach(component_id => {
+          patch_component(component_id, obj.updates[component_id]);
+        });
+      };
     };
 
     const queue = []
@@ -405,23 +457,21 @@ let liveview main websocket =
                 let%lwt () = Dream.send websocket msg in
                 loop ()
               | Some effect ->
-                let () =
+                let updates =
                   Dream.log "%s: activate" subid;
-                  (* TODO hide Bonsai_driver logic here *)
-                  let open Bonsai_driver in
-                  schedule_event bonsai_app effect;
-                  flush bonsai_app
+                  LiveView.apply bonsai_app effect
                 in
-                let html = LiveView.html bonsai_app in
                 let msg =
                   let open Yojson.Safe in
-                  let upd = Format.asprintf "%a" (Html.pp_elt ()) html in
-                  let obj = `Assoc [("update", `String upd)] in
+                  let updates =
+                    List.map (fun (component, html) ->
+                      (component, `String html)
+                    ) updates
+                  in
+                  let obj = `Assoc [("updates", `Assoc updates)] in
                   to_string obj
                 in
                 let%lwt () = Dream.send websocket msg in
-                (* TODO hide driver logic here *)
-                Bonsai_driver.trigger_lifecycles bonsai_app;
                 loop ()
               end
             | None ->
@@ -461,10 +511,7 @@ let get_handler req =
   | _ ->
     let csrf_token = Dream.csrf_token req in
     let main = main req in
-    let bonsai_html =
-      let bonsai_app = LiveView.app main in
-      LiveView.html bonsai_app
-    in
+    let bonsai_html = LiveView.initial_html main in
     dream_tyxml ~csrf_token bonsai_html
 
 let handler req =
