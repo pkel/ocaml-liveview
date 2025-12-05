@@ -1,0 +1,4 @@
+(library
+ (name bonesai)
+ (libraries react)
+ (public_name main.bonesai))
