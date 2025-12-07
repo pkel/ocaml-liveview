@@ -1,11 +1,12 @@
 type _ t =
   | Constant : 'a -> 'a t
-  | Both : 'a t * 'b t -> ('a * 'b) t
+  | Signal: 'a React.signal -> 'a t
   | Cutoff :
       { t : 'a t
       ; equal : 'a -> 'a -> bool
       }
       -> 'a t
+  | Both : 'a t * 'b t -> ('a * 'b) t
   | Map :
       { t : 'a t
       ; f : 'a -> 'b
