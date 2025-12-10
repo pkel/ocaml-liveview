@@ -85,3 +85,36 @@ end
 (** Just like [toggle] except that you also have an [effect] for directly setting the
     state in addition to toggling it back and forth. *)
 val toggle': default_model:bool -> graph -> Toggle.t
+
+module Apply_action_context : sig
+  (** A value with the type [('action, 'response) Apply_action_context.t] is provided to
+      all state-machine's [apply_action] functions. It can be used to do a variety of
+      things that are only legal inside of [apply_action]:
+      1. Access the application time source directly. This is most likely useful to read
+         the current time or sleep for some time span (TODO)
+      2. "inject" a value corresponding to the state-machine's action type into an effect
+         that can be scheduled.
+      3. Directly schedule effects. *)
+
+  type ('action, 'response) t
+
+  val inject : ('action, 'response) t -> 'action -> 'response effect
+  val schedule_event : _ t -> unit effect -> unit
+
+  (* TODO *)
+  (* val time_source : _ t -> Time_source.t *)
+end
+
+(** [Bonesai.state_machine] allows you to build a state machine whose state is initialized
+    to whatever you pass to [default_model], and the state machine transitions states
+    using the [apply_action] function. The current state and a function for injecting an
+    action into a schedulable effect are returned.
+
+    [?equal] does the same thing that it does for [Bonesai.state], go read
+    those docs for more. *)
+val state_machine
+  :  ?equal:('model -> 'model -> bool)
+  -> default_model:'model
+  -> apply_action:(('action, unit) Apply_action_context.t -> 'model -> 'action -> 'model)
+  -> graph
+  -> 'model t * ('action -> unit effect) t
