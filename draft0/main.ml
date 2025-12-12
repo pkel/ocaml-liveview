@@ -443,6 +443,12 @@ let liveview main websocket =
            * maintain a ring buffer of recent subscriptions. Each event would
            * include the lowest id still relevant; the event handler would
            * purge all subscriptions not relevant any more.
+           *
+           * Note, with the approach of ../weak_ptr we'd rely on the GC to
+           * purge stuff that's not relevant anymore. High latency might still
+           * induce situations where the GC removes a handler that some incoming
+           * messages assume to be present. So some sort of user feedback is
+           * required on the client side.
            *)
         | Ok (Event (subid, event)) ->
           begin
@@ -492,6 +498,38 @@ let liveview main websocket =
           let%lwt () = Dream.send websocket msg in
           loop ()
   in loop ()
+
+(* TODO There is a conceptual gap for the handover from HTTP GET semantics to
+   updating via a websocket. The initial render happens over GET, updates over
+   the socket. I tried to hand over the state from the initial render to the
+   socket. Dream doesn't allow it. So I tried storing things in the session.
+   Then got lazy and resorted to re-initializing the state for the websocket
+   afresh. This is mostly fine, but it assumes that view and initialization are
+   deterministic.
+
+   I think it would be better to re-send the entire state over the websocket on
+   initialization (as first update). Or at least verify that the states are
+   equal (e.g. by putting a hash of the pre-render state into the websocket
+   arguments and verifying it on websocket boot).
+
+   Even if the initial render differs from the initial state of the websocket,
+   the initial morphdom update could still synchronize the state.
+
+   Another idea is to not even attempt to have the same HTML pre-render and
+   after boot. E.g. the websocket related stuff can just be omitted (e.g.
+   pointers to server side effects [e.g. on button click do ...]). Or even
+   better, there could be different effects (e.g. POST/redirect/GET instead of
+   liveview updates). If I recall correctly; I started this repo with a
+   POST/redirect/GET implementation of a counter.
+
+   But this is twisting my brain now. For POST/redirect/GET, the server side
+   effects have to be serializable for sure. And if they are serializable, do
+   we still need the Weak_ptr things?
+
+   However; it's probably best to start with the weak pointers and websocket
+   only semantics. Then think about the fallback to strict HTTP semantics
+   later. It's probably a non-goal anyways.
+*)
 
 let get_handler req =
   match Dream.header req "Upgrade" with
