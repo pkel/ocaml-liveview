@@ -1,11 +1,4 @@
-module Graph : sig
-  type t
-end = struct
-  type t = unit
-end
-
 type 'a t = 'a Value.t
-type graph = Graph.t
 
 let return x = Value.Constant x
 
@@ -13,6 +6,18 @@ let map v ~f = Value.Map { t=v; f }
 let map2 v1 v2 ~f = Value.Map2 { t1=v1; t2=v2; f }
 let both a b = Value.Both (a, b)
 let cutoff v ~equal = Value.Cutoff { equal; t = v }
+
+module Graph : sig
+  type t
+
+  val build_with_graph: (t -> 'a) -> 'a
+end = struct
+  type t = unit
+
+  let build_with_graph fn = fn ()
+end
+
+type graph = Graph.t
 
 module Effect : sig
   type 'a t
@@ -50,6 +55,18 @@ end = struct
 end
 
 type 'a effect = 'a Effect.t
+
+module Runtime = struct
+  type ('state, 'action) app = 'state React.signal * ('action -> unit effect) React.signal
+
+  let init bonesai =
+    let value, inject = Graph.build_with_graph bonesai in
+    Value.eval value, Value.eval inject
+
+  let observe (signal, _) = React.S.value signal
+
+  let inject (_, inject) action = Effect.execute (React.S.value inject action)
+end
 
 let state ?(equal = (==)) start _graph =
   let signal, setter = React.S.create ~eq:equal start in

@@ -1,8 +1,8 @@
 (library
  (name weak_ptr)
  (modules weak_ptr)
- (libraries main.bonesai)
- (public_name main.weak_ptr))
+ (libraries liveview.bonesai)
+ (public_name liveview.weak_ptr))
 
 (test
   (name weak_ptr_test)

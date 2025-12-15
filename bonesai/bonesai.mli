@@ -118,3 +118,11 @@ val state_machine
   -> apply_action:(('action, unit) Apply_action_context.t -> 'model -> 'action -> 'model)
   -> graph
   -> 'model t * ('action -> unit effect) t
+
+module Runtime : sig
+  type ('state, 'action) app
+
+  val init: (graph -> ('state t * ('action -> unit effect) t)) -> ('state, 'action) app
+  val inject: ('state, 'action) app -> 'action -> unit
+  val observe: ('state, 'action) app -> 'state
+end

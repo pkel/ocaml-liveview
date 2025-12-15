@@ -1,4 +1,10 @@
 (library
  (name bonesai)
+ (modules bonesai value)
  (libraries react)
- (public_name main.bonesai))
+ (public_name liveview.bonesai))
+
+(test
+ (name bonesai_test)
+ (modules bonesai_test)
+ (libraries alcotest testo liveview.bonesai))

@@ -1,1 +1,23 @@
 (lang dune 2.0)
+
+(name liveview)
+
+(generate_opam_files true)
+
+(package
+  (name liveview)
+  (synopsis "Experiments to build a liveview and bonsai inspired web framework")
+  (depends
+    (ocaml (= 5.1.1))
+    (dune :build)
+    (bonsai (= v0.17.0))
+    (dream (= "1.0.0~alpha8"))
+    (tyxml (= 4.6.0))
+    (lwt_ppx (= 5.9.1))
+    (ppx_expect :with-test)
+    (alcotest :with-test)
+    (testo :with-test)
+    (odig :with-dev-setup)
+    (odoc :with-dev-setup)
+    (ocaml-lsp-server :with-dev-setup)
+  ))
