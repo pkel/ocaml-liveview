@@ -3,8 +3,14 @@ type 'a t = 'a Value.t
 let return x = Value.Constant x
 
 let map v ~f = Value.Map { t=v; f }
-let map2 v1 v2 ~f = Value.Map2 { t1=v1; t2=v2; f }
+let map2 v1 v2 ~f = Value.Map2 { t1=v1; t2=v2; f } (* TODO do we need this? *)
 let both a b = Value.Both (a, b)
+
+module Let_syntax = struct
+  let (let+) v f = map v ~f
+  let (and+) = both
+end
+
 let cutoff v ~equal = Value.Cutoff { equal; t = v }
 
 module Graph : sig
@@ -57,15 +63,15 @@ end
 type 'a effect = 'a Effect.t
 
 module Runtime = struct
-  type ('state, 'action) app = 'state React.signal * ('action -> unit effect) React.signal
+  type 'a app = 'a React.signal
 
-  let init bonesai =
-    let value, inject = Graph.build_with_graph bonesai in
-    Value.eval value, Value.eval inject
+  let compile bonesai =
+    let value = Graph.build_with_graph bonesai in
+    Value.eval value
 
-  let observe (signal, _) = React.S.value signal
+  let observe = React.S.value
 
-  let inject (_, inject) action = Effect.execute (React.S.value inject action)
+  let schedule_effect _app = Effect.execute
 end
 
 let state ?(equal = (==)) start _graph =

@@ -6,13 +6,17 @@ let tests0 =
       ~expected_outcome:(Should_fail "assertion")
   ]
 
-let counter start_state =
-  Bonesai.state_machine
-    ~default_model:start_state
-    ~apply_action:(fun _ctx ctr -> function
-      | `Incr -> ctr + 1
-      | `Decr -> ctr - 1
-    )
+let counter start_state graph =
+  let state, inject =
+    Bonesai.state_machine
+      ~default_model:start_state
+      ~apply_action:(fun _ctx ctr -> function
+        | `Incr -> ctr + 1
+        | `Decr -> ctr - 1
+      )
+      graph
+  in
+  Bonesai.both state inject
 
 (* TODO test Bonsai.{state, state_opt, state', toggle, toggle'} *)
 
@@ -20,14 +24,21 @@ let tests1 =
   [ Testo.create "counter"
       (fun () ->
         let open Bonesai.Runtime in
-        let app = init (counter 7) in
-        Alcotest.(check int) "init" 7 (observe app);
-        inject app `Incr;
-        Alcotest.(check int) "incr" 8 (observe app);
-        inject app `Decr;
-        Alcotest.(check int) "decr 1st" 7 (observe app);
-        inject app `Decr;
-        Alcotest.(check int) "decr 2nd" 6 (observe app);
+        let app = compile (counter 7) in
+        let inject action =
+          let _, fn = observe app in
+          schedule_effect app (fn action)
+        and observe () =
+          let state, _ = observe app in
+          state
+        in
+        Alcotest.(check int) "init" 7 (observe ());
+        inject `Incr;
+        Alcotest.(check int) "incr" 8 (observe ());
+        inject `Decr;
+        Alcotest.(check int) "decr 1st" 7 (observe ());
+        inject `Decr;
+        Alcotest.(check int) "decr 2nd" 6 (observe ());
         )
   ]
 

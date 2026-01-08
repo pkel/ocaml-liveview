@@ -1,0 +1,231 @@
+open Bonesai.Let_syntax
+
+module Counter = struct
+  open Liveview
+
+  module Action = struct
+    type t =
+      | Increment
+      | Decrement
+  end
+
+  let component ~start ctx graph : [> `Div ] component Bonesai.t =
+    let state, inject =
+      Bonesai.state_machine
+        graph
+        ~default_model:start
+        ~apply_action:(fun (_ : _ Bonesai.Apply_action_context.t) model -> function
+        | Action.Increment -> model + 1
+        | Action.Decrement -> model - 1)
+    in
+    let+ state and+ inject in
+    let render ctx =
+      let open Html in
+      let button label_ action =
+        let handler () = inject action in
+        button ~a:[ a_onclick ctx handler ] [ txt label_ ]
+      in
+      [ button "-1" Action.Decrement
+      ; txt (Int.to_string state)
+      ; button "+1" Action.Increment
+      ]
+    in
+    Component.div render ctx
+end
+
+module Input = struct
+  open Liveview
+
+  let component ~start ctx graph : [> `Div ] component Bonesai.t =
+    let state, inject =
+      Bonesai.state_machine
+        graph
+        ~default_model:start
+        ~apply_action:(fun (_ : _ Bonesai.Apply_action_context.t) _old new_ -> new_)
+    in
+    let+ state and+ inject in
+    let render ctx =
+      let open Html in
+      [
+        form ~a:[a_action "."; a_method `Post] [
+          input ~a:[a_input_type `Text; a_oninput ctx inject; a_value state] ();
+          ]
+      ]
+    in
+    Component.div render ctx
+end
+
+let main ~n1 ~n2 ~n3 ~s ctx graph =
+  let open Liveview in
+  let+ one = Counter.component ~start:n1 ctx graph
+  and+ two = Counter.component ~start:n2 ctx graph
+  and+ three = Counter.component ~start:n3 ctx graph
+  and+ four = Input.component ~start:s ctx graph
+  in
+  let open Html in
+  let render ctx =
+    [ sub_component ctx one
+    ; sub_component ctx two
+    ; sub_component ctx three
+    ; sub_component ctx four
+    ]
+  in
+  Component.div render ctx
+
+(* read arguments from Dream request *)
+
+let parse_query_s req =
+  match Dream.query req "s" with
+  | None -> "init"
+  | Some s -> s
+
+let parse_query_n1 req =
+  match Dream.query req "n1" with
+  | None -> 42
+  | Some x ->
+    match int_of_string_opt x with
+    | None -> 42
+    | Some x -> x
+
+let parse_query_n2 req =
+  match Dream.query req "n2" with
+  | None -> 13
+  | Some x ->
+    match int_of_string_opt x with
+    | None -> 13
+    | Some x -> x
+
+let parse_query_n3 req =
+  match Dream.query req "n3" with
+  | None -> 21
+  | Some x ->
+    match int_of_string_opt x with
+    | None -> 21
+    | Some x -> x
+
+let main req =
+  let n1 = parse_query_n1 req
+  and n2 = parse_query_n2 req
+  and n3 = parse_query_n3 req
+  and s = parse_query_s req in
+  main ~n1 ~n2 ~n3 ~s
+
+module Html = Tyxml.Html
+
+let dream_tyxml ~csrf_token x =
+  let js = Printf.sprintf "
+    console.log('js: hello js');
+    const loc = window.location;
+    const tok = '%s';
+    var ws_url;
+    if (loc.search) {
+      ws_url = `//${loc.host}${loc.pathname}${loc.search}&csrf_token=${tok}`;
+    } else {
+      ws_url = `//${loc.host}${loc.pathname}?csrf_token=${tok}`;
+    }
+    const socket = new WebSocket(ws_url);
+
+    function patch_component(id, html) {
+      const component = document.getElementById(id);
+      morphdom(component, html, {
+        childrenOnly: true,
+        onBeforeElUpdated: (fromEl, toEl) => {
+          if (toEl.hasAttribute('data-morphdom-skip')) {
+            return false; // skip updating this element
+          } else {
+            return true;
+          };
+        },
+      });
+    };
+
+    socket.onmessage = function (e) {
+      var obj = false;
+      try {
+        obj = JSON.parse(e.data);
+      } catch (err) {
+        console.log('ws rcv: (parse error)', e.data);
+        return;
+      }
+      console.log('ws rcv:', obj);
+      if (obj && obj.hasOwnProperty('updates')) {
+        Object.keys(obj.updates).forEach(component_id => {
+          patch_component(component_id, obj.updates[component_id]);
+        });
+      };
+    };
+
+    const queue = []
+
+    function send_message(m) {
+      console.log('ws snd: ' + m);
+      if (socket.readyState !== 1) {
+        queue.push(m);
+      } else {
+        socket.send(m);
+      }
+    };
+
+    socket.onopen = function () {
+      while (queue.length > 0) {
+        socket.send(queue.shift());
+      };
+    };
+
+    function liveview_handler(name, arg1) {
+      return ((id, event) => {
+        event.preventDefault();
+        event.stopPropagation();
+
+        var msg = name + '|' + id;
+        if (arg1) {
+          msg += '|' + arg1(event);
+        }
+        send_message(msg);
+      })
+    };
+
+    const liveview_onclick = liveview_handler('onclick')
+    const liveview_oninput = liveview_handler('oninput', e => e.target.value)
+
+    console.log('js: ready js');
+
+    send_message('info|load 1');
+    send_message('info|load 2');
+    " csrf_token
+  in
+  let html =
+    let open Html in
+    html
+      (head (title (txt "Counter")) [
+          script (cdata_script js);
+        script ~a:[a_src "https://cdn.jsdelivr.net/npm/morphdom@2.7.5/dist/morphdom-umd.min.js"] (txt "")
+        ])
+      (body [x])
+  in
+  let str = Format.asprintf "%a" (Html.pp ()) html in
+  Dream.html str
+
+let handler app req =
+  match Dream.header req "Upgrade" with
+  | Some "websocket" ->
+    begin
+      match Dream.query req "csrf_token" with
+      | None -> Dream.empty `Unauthorized
+      | Some token ->
+        match%lwt Dream.verify_csrf_token req token with
+        | `Expired _ -> Dream.empty `Forbidden
+        | `Wrong_session -> Dream.empty `Forbidden
+        | `Invalid -> Dream.empty `Unauthorized
+        | `Ok ->
+          let app = app req in
+          Dream.websocket (Liveview.Dream.run app)
+    end
+  | _ ->
+    let csrf_token = Dream.csrf_token req in
+    let app = app req in
+    let bonesai_html = Liveview.Dream.prerender app in
+    dream_tyxml ~csrf_token bonesai_html
+
+let () =
+  Dream.run @@ Dream.logger @@ Dream.memory_sessions (handler main)

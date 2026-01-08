@@ -28,6 +28,11 @@ val map : 'a t -> f:('a -> 'b) -> 'b t
 val map2 : 'a t -> 'b t -> f:('a -> 'b -> 'c) -> 'c t
 val both : 'a t -> 'b t -> ('a * 'b) t
 
+module Let_syntax : sig
+  val ( let+ ) : 'a t -> ('a -> 'b) -> 'b t
+  val ( and+ ) : 'a t -> 'b t -> ('a * 'b) t
+end
+
 (** The Bonesai runtime will recompute a node if any of its dependencies change. But
     sometimes, you may want to consider two contained values to be "close enough" and cut
     off recomputation. You can do that by passing a custom equality function to
@@ -120,9 +125,9 @@ val state_machine
   -> 'model t * ('action -> unit effect) t
 
 module Runtime : sig
-  type ('state, 'action) app
+  type 'a app
 
-  val init: (graph -> ('state t * ('action -> unit effect) t)) -> ('state, 'action) app
-  val inject: ('state, 'action) app -> 'action -> unit
-  val observe: ('state, 'action) app -> 'state
+  val compile: (graph -> 'a t) -> 'a app
+  val schedule_effect: 'a app -> unit effect -> unit
+  val observe: 'a app -> 'a
 end
