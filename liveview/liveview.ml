@@ -12,6 +12,7 @@ type app_context =
   { recurse: bool
   ; mutable update: id:string -> html:string -> unit (* TODO use effects instead? *)
   ; subscriptions: subscription WeakTable.t
+  ; mutable next_component_id: int
   }
 
 let dummy_update ~id ~html =
@@ -57,20 +58,17 @@ module Html = struct
     if ctx.recurse then c.deep else c.shallow
 end
 
-module Component = struct
-  let counter = ref 0
-  let fresh_id () =
-    let id = Printf.sprintf "0x%x" !counter in
-    counter := !counter + 1;
-    id
+type component_id = string
 
-  let div render (ctx: app_context) =
-    let id =
-      fresh_id ()
-      (* TODO how get a stable id for the component from bonesai?
-         This one is incremented on each render; we want to increment it on
-         bonesai.t creation instead.
-       *) in
+let component_id (ctx: app_context) _graph =
+  (* graph argument is to enforce that this is not called at runtime *)
+  let id = Printf.sprintf "0x%x" ctx.next_component_id in
+  ctx.next_component_id <- ctx.next_component_id + 1;
+  Bonesai.return id
+
+module Component = struct
+
+  let div id render (ctx: app_context) =
     let () = Dream.log "%s: render" id in
     let elts, local_subscriptions =
       let ctx : html_context =
@@ -99,8 +97,11 @@ end
 type 'a app = app_context -> Bonesai.graph -> 'a component Bonesai.t
 
 module Dream = struct
+  let app_context ~recurse =
+    { recurse; update = dummy_update; subscriptions = WeakTable.create (); next_component_id = 0 }
+
   let prerender app =
-    let ctx = { recurse = true; update = dummy_update; subscriptions = WeakTable.create () } in
+    let ctx = app_context ~recurse:true in
     let app = Bonesai.Runtime.compile (app ctx) in
     let rendered_html =  Bonesai.Runtime.observe app in
     rendered_html.deep
@@ -169,7 +170,7 @@ module Dream = struct
     !updates
 
   let run app websocket =
-    let ctx = { recurse = false; update = dummy_update; subscriptions = WeakTable.create () } in
+    let ctx = app_context ~recurse:false in
     let app = Bonesai.Runtime.compile (app ctx) in
     let%lwt () = Message.send_info websocket "hello socket" in
     let rec loop () =

@@ -18,7 +18,7 @@ module Counter = struct
         | Action.Increment -> model + 1
         | Action.Decrement -> model - 1)
     in
-    let+ state and+ inject in
+    let+ state and+ inject and+ id = Liveview.component_id ctx graph in
     let render ctx =
       let open Html in
       let button label_ action =
@@ -30,7 +30,7 @@ module Counter = struct
       ; button "+1" Action.Increment
       ]
     in
-    Component.div render ctx
+    Component.div id render ctx
 end
 
 module Input = struct
@@ -43,7 +43,7 @@ module Input = struct
         ~default_model:start
         ~apply_action:(fun (_ : _ Bonesai.Apply_action_context.t) _old new_ -> new_)
     in
-    let+ state and+ inject in
+    let+ state and+ inject and+ id = Liveview.component_id ctx graph in
     let render ctx =
       let open Html in
       [
@@ -52,7 +52,7 @@ module Input = struct
           ]
       ]
     in
-    Component.div render ctx
+    Component.div id render ctx
 end
 
 let main ~n1 ~n2 ~n3 ~s ctx graph =
@@ -61,6 +61,7 @@ let main ~n1 ~n2 ~n3 ~s ctx graph =
   and+ two = Counter.component ~start:n2 ctx graph
   and+ three = Counter.component ~start:n3 ctx graph
   and+ four = Input.component ~start:s ctx graph
+  and+ id = Liveview.component_id ctx graph
   in
   let open Html in
   let render ctx =
@@ -70,7 +71,7 @@ let main ~n1 ~n2 ~n3 ~s ctx graph =
     ; sub_component ctx four
     ]
   in
-  Component.div render ctx
+  Component.div id render ctx
 
 (* read arguments from Dream request *)
 

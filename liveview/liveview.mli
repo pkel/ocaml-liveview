@@ -14,12 +14,14 @@ module Html : sig
   val sub_component : html_context -> 'a component -> 'a elt
 end
 
+type component_id
+val component_id: app_context -> Bonesai.graph -> component_id Bonesai.t
+
 module Component : sig
   (* wrappers around Html.{div,...} that create new liveview components *)
-
   open Html_types
 
-  val div: (html_context -> [< div_content_fun ] Html.elt list)  -> app_context -> [> `Div ] component
+  val div: component_id -> (html_context -> [< div_content_fun ] Html.elt list)  -> app_context -> [> `Div ] component
 end
 
 type 'a app = app_context -> Bonesai.graph -> 'a component Bonesai.t
