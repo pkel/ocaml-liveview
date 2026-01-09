@@ -1,18 +1,19 @@
 open Tyxml
 
-module WeakTable = Weak_ptr.Registry
+module WeakTable = Ephemeron.K1.Make (String)
 
-type 'a handler = 'a -> unit Bonesai.effect
+type 'a handler0 = 'a -> unit Bonesai.effect
 
 type subscription =
-  | OnClick of unit handler
-  | OnInput of string handler
+  | OnClick of unit handler0
+  | OnInput of string handler0
 
 type app_context =
   { recurse: bool
   ; mutable update: id:string -> html:string -> unit (* TODO use effects instead? *)
   ; subscriptions: subscription WeakTable.t
   ; mutable next_component_id: int
+  ; mutable next_handler_id: int
   }
 
 let dummy_update ~id ~html =
@@ -33,38 +34,48 @@ type 'a component = {
 The latter is required to prevent gc of subscriptions; we only access them
 via the weak table. *)
 
-module Html = struct
-  include Html
-
-  let js_side_event_handler (ctx: html_context) subscription =
-    let id = WeakTable.register ctx.global_subscriptions subscription in
-    let () = ctx.local_subscriptions <- subscription :: ctx.local_subscriptions in
-    let name =
-      match subscription with
-      | OnClick _ -> "onclick"
-      | OnInput _ -> "oninput"
-    in
-    Printf.sprintf "liveview_%s('%s', event)" name (WeakTable.string_of_id id)
-
-  let a_onclick ctx handler =
-    let sub = OnClick handler in
-    a_onclick (js_side_event_handler ctx sub)
-
-  let a_oninput (ctx: html_context) handler =
-    let sub = OnInput handler in
-    a_oninput (js_side_event_handler ctx sub)
-
-  let sub_component (ctx : html_context) c =
-    if ctx.recurse then c.deep else c.shallow
-end
-
 type component_id = string
+type handler_id = string
 
 let component_id (ctx: app_context) _graph =
   (* graph argument is to enforce that this is not called at runtime *)
   let id = Printf.sprintf "0x%x" ctx.next_component_id in
   ctx.next_component_id <- ctx.next_component_id + 1;
   Bonesai.return id
+
+let handler_id (ctx: app_context) _graph =
+  (* graph argument is to enforce that this is not called at runtime *)
+  let id = Printf.sprintf "0x%x" ctx.next_handler_id in
+  ctx.next_handler_id <- ctx.next_handler_id + 1;
+  Bonesai.return id
+
+module Html = struct
+  include Html
+
+  type 'a handler = handler_id  * ('a -> unit Bonesai.effect)
+
+  let js_side_event_handler (ctx: html_context) id subscription =
+    let () = WeakTable.add ctx.global_subscriptions id subscription in
+    (* let id = WeakTable.register ctx.global_subscriptions subscription in *)
+    let () = ctx.local_subscriptions <- subscription :: ctx.local_subscriptions in
+    let name =
+      match subscription with
+      | OnClick _ -> "onclick"
+      | OnInput _ -> "oninput"
+    in
+    Printf.sprintf "liveview_%s('%s', event)" name ((*WeakTable.string_of_id*) id)
+
+  let a_onclick ctx (id, handler) =
+    let sub = OnClick handler in
+    a_onclick (js_side_event_handler ctx id sub)
+
+  let a_oninput (ctx: html_context) (id, handler) =
+    let sub = OnInput handler in
+    a_oninput (js_side_event_handler ctx id sub)
+
+  let sub_component (ctx : html_context) c =
+    if ctx.recurse then c.deep else c.shallow
+end
 
 module Component = struct
 
@@ -98,7 +109,10 @@ type 'a app = app_context -> Bonesai.graph -> 'a component Bonesai.t
 
 module Dream = struct
   let app_context ~recurse =
-    { recurse; update = dummy_update; subscriptions = WeakTable.create (); next_component_id = 0 }
+    { recurse; update = dummy_update; subscriptions = WeakTable.create 7
+    ; next_component_id = 0
+    ; next_handler_id = 0
+    }
 
   let prerender app =
     let ctx = app_context ~recurse:true in
@@ -145,12 +159,9 @@ module Dream = struct
   end
 
   let lookup id table =
-    match WeakTable.id_of_string id with
-    | None -> Error `Invalid_id
-    | Some id ->
-        match WeakTable.find_opt table id with
-        | None -> Error `Not_found
-        | Some x -> Ok x
+    match WeakTable.find_opt table id with
+      | None -> Error `Not_found
+      | Some x -> Ok x
 
   let effect_of_event_and_sub event sub =
     match event, sub with
@@ -165,13 +176,19 @@ module Dream = struct
     in
     app_context.update <- update;
     Bonesai.Runtime.schedule_effect app effect;
-    (* TODO; do we have to wait for synchronization? Like `flush` ind JS Bonsai? *)
+    (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
     app_context.update <- dummy_update;
     !updates
 
   let run app websocket =
     let ctx = app_context ~recurse:false in
-    let app = Bonesai.Runtime.compile (app ctx) in
+    let app =
+      (* TODO clean up: compile is triggering updates on the first rendering, I just ignore them here *)
+      let () = ctx.update <- (fun ~id ~html -> ignore (id, html)) in
+      let app = Bonesai.Runtime.compile (app ctx) in
+      let () = ctx.update <- dummy_update in
+      app
+    in
     let%lwt () = Message.send_info websocket "hello socket" in
     let rec loop () =
       match%lwt Dream.receive websocket with

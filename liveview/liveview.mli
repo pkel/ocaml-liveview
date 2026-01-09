@@ -1,10 +1,15 @@
 type app_context
 type html_context
-type 'a handler = 'a -> unit Bonesai.effect
+
+type handler_id
+val handler_id: app_context -> Bonesai.graph -> handler_id Bonesai.t
+
 type 'a component
 
 module Html : sig
   (** use like Tyxml.Html *)
+
+  type 'a handler = handler_id  * ('a -> unit Bonesai.effect)
 
   include module type of Tyxml.Html
 

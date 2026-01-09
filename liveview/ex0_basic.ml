@@ -18,16 +18,20 @@ module Counter = struct
         | Action.Increment -> model + 1
         | Action.Decrement -> model - 1)
     in
-    let+ state and+ inject and+ id = Liveview.component_id ctx graph in
+    let+ state and+ inject
+    and+ id = Liveview.component_id ctx graph
+    and+ incr = Liveview.handler_id ctx graph
+    and+ decr = Liveview.handler_id ctx graph
+    in
     let render ctx =
       let open Html in
-      let button label_ action =
-        let handler () = inject action in
+      let button label_ action id =
+        let handler = id, fun () -> inject action in
         button ~a:[ a_onclick ctx handler ] [ txt label_ ]
       in
-      [ button "-1" Action.Decrement
+      [ button "-1" Action.Decrement decr
       ; txt (Int.to_string state)
-      ; button "+1" Action.Increment
+      ; button "+1" Action.Increment incr
       ]
     in
     Component.div id render ctx
@@ -43,13 +47,17 @@ module Input = struct
         ~default_model:start
         ~apply_action:(fun (_ : _ Bonesai.Apply_action_context.t) _old new_ -> new_)
     in
-    let+ state and+ inject and+ id = Liveview.component_id ctx graph in
+    let+ state and+ inject
+    and+ id = Liveview.component_id ctx graph
+    and+ upd = Liveview.handler_id ctx graph in
+    let handler = upd, inject in
     let render ctx =
       let open Html in
       [
-        form ~a:[a_action "."; a_method `Post] [
-          input ~a:[a_input_type `Text; a_oninput ctx inject; a_value state] ();
-          ]
+        form [
+          input ~a:[a_input_type `Text; a_oninput ctx handler; a_value state] ();
+        ];
+        txt state
       ]
     in
     Component.div id render ctx
