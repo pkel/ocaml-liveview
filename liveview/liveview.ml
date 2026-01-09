@@ -17,7 +17,6 @@ let dummy_update ~id ~html = Dream.log "%s: unhandled update: %s" id html
 
 type html_context = {
   recurse : bool;
-  component_id : string;
   global_subscriptions : subscription WeakTable.t;
   mutable local_subscriptions : subscription list;
 }
@@ -25,7 +24,7 @@ type html_context = {
 type 'a component = {
   deep : 'a Html.elt (* recursively rendered document *);
   shallow : 'a Html.elt (* non-recursive rendering *);
-  local_subscriptions : subscription list;
+  local_subscriptions : subscription list; [@warning "-unused-field"]
 }
 (* component has two HTML representations and a list of subscriptions.
 The latter is required to prevent gc of subscriptions; we only access them
@@ -52,9 +51,8 @@ module Html = struct
   type 'a handler = handler_id * ('a -> unit Bonesai.effect)
 
   let js_side_event_handler (ctx : html_context) id subscription =
-    let () = WeakTable.add ctx.global_subscriptions id subscription in
-    (* let id = WeakTable.register ctx.global_subscriptions subscription in *)
     let () =
+      WeakTable.add ctx.global_subscriptions id subscription;
       ctx.local_subscriptions <- subscription :: ctx.local_subscriptions
     in
     let name =
@@ -80,7 +78,6 @@ module Component = struct
     let elts, local_subscriptions =
       let ctx : html_context =
         {
-          component_id = id;
           local_subscriptions = [];
           global_subscriptions = ctx.subscriptions;
           recurse = ctx.recurse;
@@ -184,6 +181,10 @@ module Dream = struct
     in
     let%lwt () = Message.send_info websocket "hello socket" in
     let rec loop () =
+      let () =
+        Gc.full_major ()
+        (* make sure that the WeakTable stuff works *)
+      in
       match%lwt Dream.receive websocket with
       | None -> Lwt.return ()
       | Some msg -> (
