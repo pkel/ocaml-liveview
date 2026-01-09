@@ -144,25 +144,26 @@ let dream_tyxml ~csrf_token x =
       try {
         obj = JSON.parse(e.data);
       } catch (err) {
-        console.log('ws rcv: (parse error)', e.data);
+        console.log('ws rcv (parse error)', e.data);
         return;
       }
-      console.log('ws rcv:', obj);
-      if (obj && obj.hasOwnProperty('updates')) {
-        Object.keys(obj.updates).forEach(component_id => {
-          patch_component(component_id, obj.updates[component_id]);
+      console.log('ws rcv', obj);
+      if (obj && obj[0] === 'Updates') {
+        obj[1].forEach(upd => {
+          patch_component(upd[0], upd[1]);
         });
       };
     };
 
     const queue = []
 
-    function send_message(m) {
-      console.log('ws snd: ' + m);
+    function send(obj) {
+      console.log('ws snd', obj);
+      var msg = JSON.stringify(obj);
       if (socket.readyState !== 1) {
-        queue.push(m);
+        queue.push(msg);
       } else {
-        socket.send(m);
+        socket.send(msg);
       }
     };
 
@@ -172,26 +173,34 @@ let dream_tyxml ~csrf_token x =
       };
     };
 
+    function send_info(text) {
+      send(['Info', text])
+    };
+
+    function send_event() {
+      send(['Event', obj])
+    };
+
     function liveview_handler(name, arg1) {
       return ((id, event) => {
         event.preventDefault();
         event.stopPropagation();
 
-        var msg = name + '|' + id;
+        var obj = [name];
         if (arg1) {
-          msg += '|' + arg1(event);
+          obj.push(arg1(event));
         }
-        send_message(msg);
+        send(['Event', id, obj]);
       })
     };
 
-    const liveview_onclick = liveview_handler('onclick')
-    const liveview_oninput = liveview_handler('oninput', e => e.target.value)
+    const liveview_onclick = liveview_handler('OnClick')
+    const liveview_oninput = liveview_handler('OnInput', e => e.target.value)
 
-    console.log('js: ready js');
+    console.log('js: ready');
 
-    send_message('info|load 1');
-    send_message('info|load 2');
+    send_info('load 1');
+    send_info('load 2');
     " csrf_token
   in
   let html =

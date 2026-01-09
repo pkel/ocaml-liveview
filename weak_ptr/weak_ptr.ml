@@ -66,6 +66,6 @@ end = struct
     | Some box -> Weak.get box 0
     | None -> None
 
-  let string_of_id = Int.to_string
-  let id_of_string = int_of_string_opt
+  let string_of_id = Printf.sprintf "0x%x"
+  let id_of_string s = Scanf.sscanf_opt s "%x" (fun x -> x)
 end

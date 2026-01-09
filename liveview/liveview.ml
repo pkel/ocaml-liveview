@@ -109,17 +109,28 @@ module Dream = struct
 
     let from_client str =
       (* TODO catch errors *)
-      let json = Yojson.Safe.from_string str in
-      Ok (from_client_of_yojson json)
+      try
+        let json = Yojson.Safe.from_string str in
+        Ok (from_client_of_yojson json)
+      with exn -> Error (Printexc.to_string exn)
 
     type to_client =
       | Updates of (string * string) list (* component id, html *)
+      | Info of string
+      | Error of string
       [@@deriving yojson]
 
     let to_client x =
       let json = yojson_of_to_client x in
       Yojson.Safe.to_string json
 
+    let send ws m =
+      let json = to_client m in
+      Dream.send ws json
+
+    let send_info ws m = send ws (Info m)
+    let send_updates ws x = send ws (Updates x)
+    let send_error ws m = send ws (Error m)
   end
 
   let lookup id table =
@@ -150,7 +161,7 @@ module Dream = struct
   let run app websocket =
     let ctx = { recurse = false; update = dummy_update; subscriptions = WeakTable.create () } in
     let app = Bonesai.Runtime.compile (app ctx) in
-    let%lwt () = Dream.send websocket "hello socket" in
+    let%lwt () = Message.send_info websocket "hello socket" in
     let rec loop () =
       match%lwt Dream.receive websocket with
       | None -> Lwt.return ()
@@ -165,42 +176,41 @@ module Dream = struct
           | Ok (Event (subid, event)) ->
             begin
               let msg = "received event: " ^ msg in
-              let%lwt () = Dream.send websocket msg in
+              let%lwt () = Message.send_info websocket msg in
               begin match lookup subid ctx.subscriptions with
               | Ok sub ->
                 begin match effect_of_event_and_sub event sub with
                 | None ->
-                  let msg = "error: event/subscription mismatch: " ^ msg in
-                  let%lwt () = Dream.send websocket msg in
+                  let msg = "event/subscription mismatch: " ^ msg in
+                  let%lwt () = Message.send_error websocket msg in
                   loop ()
                 | Some effect ->
                   let updates =
                     Dream.log "%s: activate" subid;
                     apply ctx app effect
                   in
-                  let msg = Message.to_client (Updates updates) in
-                  let%lwt () = Dream.send websocket msg in
+                  let%lwt () = Message.send_updates websocket updates in
                   loop ()
                 end
               | Error `Invalid_id ->
                 let msg = "error: invalid subscription id: " ^ subid in
-                let%lwt () = Dream.send websocket msg in
+                let%lwt () = Message.send_error websocket msg in
                 loop ()
               | Error `Not_found ->
                 let msg = "error: subscription id not found: " ^ subid in
-                let%lwt () = Dream.send websocket msg in
+                let%lwt () = Message.send_error websocket msg in
                 loop ()
               end
             end
           | Ok (Info info) ->
             let msg = "received info: " ^ info in
-            let%lwt () = Dream.send websocket msg in
+            let%lwt () = Message.send_info websocket msg in
             loop ()
           | Error emsg ->
-            let msg = "error: cannot parse message: \""
+            let msg = "cannot parse message: \""
                       ^ msg ^ "\": " ^ emsg
             in
-            let%lwt () = Dream.send websocket msg in
+            let%lwt () = Message.send_error websocket msg in
             loop ()
     in loop ()
 end
