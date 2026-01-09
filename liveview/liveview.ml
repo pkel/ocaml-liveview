@@ -58,8 +58,19 @@ module Html = struct
 end
 
 module Component = struct
+  let counter = ref 0
+  let fresh_id () =
+    let id = Printf.sprintf "0x%x" !counter in
+    counter := !counter + 1;
+    id
+
   let div render (ctx: app_context) =
-    let id = "42TODO" (* TODO how get id in bonesai? *) in
+    let id =
+      fresh_id ()
+      (* TODO how get a stable id for the component from bonesai?
+         This one is incremented on each render; we want to increment it on
+         bonesai.t creation instead.
+       *) in
     let () = Dream.log "%s: render" id in
     let elts, local_subscriptions =
       let ctx : html_context =
@@ -108,7 +119,6 @@ module Dream = struct
       [@@deriving yojson]
 
     let from_client str =
-      (* TODO catch errors *)
       try
         let json = Yojson.Safe.from_string str in
         Ok (from_client_of_yojson json)

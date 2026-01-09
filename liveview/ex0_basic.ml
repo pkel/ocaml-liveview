@@ -127,6 +127,10 @@ let dream_tyxml ~csrf_token x =
 
     function patch_component(id, html) {
       const component = document.getElementById(id);
+      if (!component) {
+        console.log('error: patch component: component id not found:', id);
+        return;
+      }
       morphdom(component, html, {
         childrenOnly: true,
         onBeforeElUpdated: (fromEl, toEl) => {
