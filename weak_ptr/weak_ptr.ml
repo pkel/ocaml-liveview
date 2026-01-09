@@ -3,12 +3,14 @@
    have to be serializable for that to work. *)
 
 module Effect : sig
- (* this is the thing I want to refer to from the client *)
+  (* this is the thing I want to refer to from the client *)
   type t
+
   val create : (unit -> unit) -> t
   val execute : t -> unit
 end = struct
   type t = unit -> unit
+
   let create t = t
   let execute t = t ()
 end
@@ -41,15 +43,9 @@ module Registry : sig
 end = struct
   type id = int
   type 'a el = 'a Weak.t
-  type 'a t =
-    { tab: (int, 'a el) Hashtbl.t
-    ; mutable last: int
-    }
+  type 'a t = { tab : (int, 'a el) Hashtbl.t; mutable last : int }
 
-  let create () =
-    { tab = Hashtbl.create 7
-    ; last = -1
-    }
+  let create () = { tab = Hashtbl.create 7; last = -1 }
 
   let register t el =
     let id = t.last + 1 in

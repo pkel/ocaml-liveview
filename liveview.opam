@@ -3,7 +3,7 @@ opam-version: "2.0"
 synopsis: "Experiments to build a liveview and bonsai inspired web framework"
 depends: [
   "ocaml" {= "5.1.1"}
-  "dune" {build}
+  "dune" {>= "3.14" & build}
   "bonsai" {= "v0.17.0"}
   "dream" {= "1.0.0~alpha8"}
   "tyxml" {= "4.6.0"}
@@ -16,10 +16,11 @@ depends: [
   "testo" {with-test}
   "odig" {with-dev-setup}
   "odoc" {with-dev-setup}
-  "ocaml-lsp-server" {with-dev-setup}
+  "ocamlformat" {with-dev-setup & = "0.28.1"}
+  "odoc" {with-doc}
 ]
 build: [
-  ["dune" "subst"] {pinned}
+  ["dune" "subst"] {dev}
   [
     "dune"
     "build"

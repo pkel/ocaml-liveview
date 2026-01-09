@@ -1,19 +1,16 @@
 let tests0 =
-  [ Testo.create "zero"
-      (fun () -> ())
-  ; Testo.create "one"
+  [
+    Testo.create "zero" (fun () -> ());
+    Testo.create "one"
       (fun () -> assert false)
-      ~expected_outcome:(Should_fail "assertion")
+      ~expected_outcome:(Should_fail "assertion");
   ]
 
 let counter start_state graph =
   let state, inject =
-    Bonesai.state_machine
-      ~default_model:start_state
+    Bonesai.state_machine ~default_model:start_state
       ~apply_action:(fun _ctx ctr -> function
-        | `Incr -> ctr + 1
-        | `Decr -> ctr - 1
-      )
+        | `Incr -> ctr + 1 | `Decr -> ctr - 1)
       graph
   in
   Bonesai.both state inject
@@ -21,8 +18,8 @@ let counter start_state graph =
 (* TODO test Bonsai.{state, state_opt, state', toggle, toggle'} *)
 
 let tests1 =
-  [ Testo.create "counter"
-      (fun () ->
+  [
+    Testo.create "counter" (fun () ->
         let open Bonesai.Runtime in
         let app = compile (counter 7) in
         let inject action =
@@ -38,11 +35,8 @@ let tests1 =
         inject `Decr;
         Alcotest.(check int) "decr 1st" 7 (observe ());
         inject `Decr;
-        Alcotest.(check int) "decr 2nd" 6 (observe ());
-        )
+        Alcotest.(check int) "decr 2nd" 6 (observe ()));
   ]
 
 let () =
-  Testo.interpret_argv
-    ~project_name:"bonesai"
-    (fun _env -> tests0 @ tests1)
+  Testo.interpret_argv ~project_name:"bonesai" (fun _env -> tests0 @ tests1)

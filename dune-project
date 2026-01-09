@@ -1,4 +1,4 @@
-(lang dune 2.0)
+(lang dune 3.14)
 
 (name liveview)
 
@@ -22,5 +22,5 @@
     (testo :with-test)
     (odig :with-dev-setup)
     (odoc :with-dev-setup)
-    (ocaml-lsp-server :with-dev-setup)
+    (ocamlformat (and :with-dev-setup (= 0.28.1)))
   ))

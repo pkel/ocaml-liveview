@@ -1,12 +1,20 @@
 (library
  (name liveview)
  (modules liveview)
- (libraries liveview.bonesai liveview.weak_ptr dream tyxml yojson ppx_yojson_conv_lib)
- (preprocess (pps lwt_ppx ppx_yojson_conv))
+ (libraries
+  liveview.bonesai
+  liveview.weak_ptr
+  dream
+  tyxml
+  yojson
+  ppx_yojson_conv_lib)
+ (preprocess
+  (pps lwt_ppx ppx_yojson_conv))
  (public_name liveview))
 
 (executable
  (name ex0_basic)
  (modules ex0_basic)
  (libraries liveview liveview.bonesai dream tyxml ppx_yojson_conv_lib)
- (preprocess (pps lwt_ppx)))
+ (preprocess
+  (pps lwt_ppx)))
