@@ -26,12 +26,8 @@ let rec eval : type a. ?equal:(a -> a -> bool) -> a t -> a React.signal =
       (* There's no way to apply the requested cutoff/equal here. To fix this,
          we match for Signal within Cutoff above. *)
       s
-  | Both (t1, t2) ->
-      React.S.bind ~eq:equal (eval t1) (fun x1 ->
-          React.S.map ~eq:phys_equal (fun x2 -> (x1, x2)) (eval t2))
-  | Map { t; f } -> React.S.map ~eq:equal f (eval t)
-  | Map2 { t1; t2; f } ->
-      React.S.bind ~eq:equal (eval t1) (fun x1 ->
-          React.S.map ~eq:phys_equal (fun x2 -> f x1 x2) (eval t2))
+  | Map { t; f } -> React.S.l1 ~eq:equal f (eval t)
+  | Map2 { t1; t2; f } -> React.S.l2 ~eq:equal f (eval t1) (eval t2)
+  | Both (t1, t2) -> eval ~equal (Map2 { t1; t2; f = (fun a b -> (a, b)) })
 
 let eval value = eval value

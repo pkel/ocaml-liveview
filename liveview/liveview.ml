@@ -161,14 +161,48 @@ module Dream = struct
     | OnInput s, OnInput f -> Some (f s)
     | _ -> None
 
+  module Updates : sig
+    type t
+
+    val create : unit -> t * (id:string -> html:string -> unit)
+    val send : t -> Dream.websocket -> unit Lwt.t
+  end = struct
+    type e = { mutable html : string; mutable cnt : int }
+    type t = (string, e) Hashtbl.t
+
+    let create () =
+      let ht = Hashtbl.create 7 in
+      let fn ~id ~html =
+        match Hashtbl.find_opt ht id with
+        | Some e ->
+            e.cnt <- e.cnt + 1;
+            e.html <- html
+        | None -> Hashtbl.add ht id { cnt = 1; html }
+      in
+      (ht, fn)
+
+    let send t socket =
+      let lst = Hashtbl.fold (fun id e acc -> (id, e.html) :: acc) t [] in
+      let%lwt () = Message.send_updates socket lst in
+      (* debugging output to client *)
+      Lwt_stream.iter_s
+        (fun (id, e) ->
+          (* TODO think hard, whether redundant renders are a programming error *)
+          if e.cnt > 1 then
+            Message.send_info socket
+              (Printf.sprintf "caught %i redundant updates of component %s"
+                 e.cnt id)
+          else Lwt.return_unit)
+        (Hashtbl.to_seq t |> Lwt_stream.of_seq)
+  end
+
   let apply app_context app effect =
-    let updates = ref [] in
-    let update ~id ~html = updates := (id, html) :: !updates in
+    let updates, update = Updates.create () in
     app_context.update <- update;
     Bonesai.Runtime.schedule_effect app effect;
     (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
     app_context.update <- dummy_update;
-    !updates
+    updates
 
   let run app websocket =
     let ctx = app_context ~recurse:false in
@@ -208,7 +242,7 @@ module Dream = struct
                         Dream.log "%s: activate" subid;
                         apply ctx app effect
                       in
-                      let%lwt () = Message.send_updates websocket updates in
+                      let%lwt () = Updates.send updates websocket in
                       loop ()
                 end
               | Error `Invalid_id ->
