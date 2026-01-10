@@ -179,7 +179,7 @@ module Dream = struct
       let () = ctx.update <- dummy_update in
       app
     in
-    let%lwt () = Message.send_info websocket "hello socket" in
+    let%lwt () = Message.send_info websocket "hello" in
     let rec loop () =
       let () =
         Gc.full_major ()
@@ -196,8 +196,6 @@ module Dream = struct
            * required on the client side.
            *)
           | Ok (Event (subid, event)) -> begin
-              let msg = "received event: " ^ msg in
-              let%lwt () = Message.send_info websocket msg in
               begin match lookup subid ctx.subscriptions with
               | Ok sub -> begin
                   match effect_of_event_and_sub event sub with
@@ -223,10 +221,7 @@ module Dream = struct
                   loop ()
               end
             end
-          | Ok (Info info) ->
-              let msg = "received info: " ^ info in
-              let%lwt () = Message.send_info websocket msg in
-              loop ()
+          | Ok (Info _info) -> loop ()
           | Error emsg ->
               let msg = "cannot parse message: \"" ^ msg ^ "\": " ^ emsg in
               let%lwt () = Message.send_error websocket msg in
