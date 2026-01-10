@@ -13,8 +13,12 @@ module Html : sig
 
   include module type of Tyxml.Html
 
-  val a_onclick : html_context -> unit handler -> [> `OnClick ] attrib
-  val a_oninput : html_context -> string handler -> [> `OnInput ] attrib
+  val a_onclick :
+    html_context -> unit handler -> [> `OnClick | `User_data ] attrib
+
+  val a_oninput :
+    html_context -> string handler -> [> `OnInput | `User_data ] attrib
+
   val sub_component : html_context -> 'a component -> 'a elt
 end
 
@@ -33,12 +37,15 @@ module Component : sig
     [> `Div ] component
 end
 
-type 'a app = app_context -> Bonesai.graph -> 'a component Bonesai.t
+type 'a app =
+  app_context ->
+  Bonesai.graph ->
+  ([< Html_types.flow5 ] as 'a) component Bonesai.t
 
 module Dream : sig
   val prerender : 'a app -> 'a Html.elt
   val run : 'a app -> Dream.websocket -> unit Lwt.t
 
-  val handler : (Dream.request -> [ `Div ] app) -> Dream.handler
+  val handler : (Dream.request -> 'a app) -> Dream.handler
   (** Dream request handler for running the app over websockets *)
 end

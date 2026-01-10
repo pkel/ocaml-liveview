@@ -3,45 +3,36 @@ module WeakTable = Ephemeron.K1.Make (String)
 
 type 'a handler0 = 'a -> unit Bonesai.effect
 type subscription = OnClick of unit handler0 | OnInput of string handler0
+type 'a renderer = shallow:bool -> pure:bool -> 'a Html.elt
+type packed_renderer = Renderer : 'a renderer -> packed_renderer
 
 type app_context = {
-  recurse : bool;
-  mutable update :
-    id:string -> html:string -> unit (* TODO use effects instead? *);
+  mutable update : (id:string -> packed_renderer -> unit) option;
+      (* TODO use effects instead? *)
   subscriptions : subscription WeakTable.t;
   mutable next_component_id : int;
   mutable next_handler_id : int;
 }
 
-let dummy_update ~id ~html = Dream.log "%s: unhandled update: %s" id html
-
 type html_context = {
-  recurse : bool;
+  shallow : bool;
+  pure : bool;
   global_subscriptions : subscription WeakTable.t;
-  mutable local_subscriptions : subscription list;
 }
 
-type 'a component = {
-  deep : 'a Html.elt (* recursively rendered document *);
-  shallow : 'a Html.elt (* non-recursive rendering *);
-  local_subscriptions : subscription list; [@warning "-unused-field"]
-}
-(* component has two HTML representations and a list of subscriptions.
-The latter is required to prevent gc of subscriptions; we only access them
-via the weak table. *)
-
+type 'a component = { render : 'a renderer; hole : pure:bool -> 'a Html.elt }
 type component_id = string
 type handler_id = string
 
 let component_id (ctx : app_context) _graph =
   (* graph argument is to enforce that this is not called at runtime *)
-  let id = Printf.sprintf "0x%x" ctx.next_component_id in
+  let id = Printf.sprintf "c%x" ctx.next_component_id in
   ctx.next_component_id <- ctx.next_component_id + 1;
   Bonesai.return id
 
 let handler_id (ctx : app_context) _graph =
   (* graph argument is to enforce that this is not called at runtime *)
-  let id = Printf.sprintf "0x%x" ctx.next_handler_id in
+  let id = Printf.sprintf "e%x" ctx.next_handler_id in
   ctx.next_handler_id <- ctx.next_handler_id + 1;
   Bonesai.return id
 
@@ -51,71 +42,71 @@ module Html = struct
   type 'a handler = handler_id * ('a -> unit Bonesai.effect)
 
   let js_side_event_handler (ctx : html_context) id subscription =
-    let () =
-      WeakTable.add ctx.global_subscriptions id subscription;
-      ctx.local_subscriptions <- subscription :: ctx.local_subscriptions
-    in
+    let () = WeakTable.add ctx.global_subscriptions id subscription in
     let name =
       match subscription with OnClick _ -> "onclick" | OnInput _ -> "oninput"
     in
     Printf.sprintf "liveview_%s('%s', event)" name (*WeakTable.string_of_id*) id
 
   let a_onclick ctx (id, handler) =
-    let sub = OnClick handler in
-    a_onclick (js_side_event_handler ctx id sub)
+    if ctx.pure then a_user_data "liveview" "onclick"
+    else
+      let sub = OnClick handler in
+      a_onclick (js_side_event_handler ctx id sub)
 
   let a_oninput (ctx : html_context) (id, handler) =
-    let sub = OnInput handler in
-    a_oninput (js_side_event_handler ctx id sub)
+    if ctx.pure then a_user_data "liveview" "oninput"
+    else
+      let sub = OnInput handler in
+      a_oninput (js_side_event_handler ctx id sub)
 
   let sub_component (ctx : html_context) c =
-    if ctx.recurse then c.deep else c.shallow
+    if ctx.shallow then c.hole ~pure:ctx.pure
+    else c.render ~pure:ctx.pure ~shallow:ctx.shallow
 end
 
 module Component = struct
   let div id render (ctx : app_context) =
-    let () = Dream.log "%s: render" id in
-    let elts, local_subscriptions =
-      let ctx : html_context =
-        {
-          local_subscriptions = [];
-          global_subscriptions = ctx.subscriptions;
-          recurse = ctx.recurse;
-        }
+    let id_attr ~pure =
+      if pure then Html.a_user_data "liveview" "component" else Html.a_id id
+    in
+    let render ~shallow ~pure =
+      let () = Dream.log "%s: render ~shallow:%b ~pure:%b" id shallow pure in
+      let elts =
+        let ctx : html_context =
+          { global_subscriptions = ctx.subscriptions; shallow; pure }
+        in
+        render ctx
       in
-      let elts = render ctx in
-      (elts, ctx.local_subscriptions)
+      Html.(div ~a:[ id_attr ~pure ] elts)
+    and hole ~pure =
+      Html.(div ~a:[ id_attr ~pure; a_user_data "morphdom-skip" "" ] [])
     in
-    let deep =
-      (* TODO There should be a way to render only when the recursive view is actually used *)
-      Html.(div ~a:[ a_id id ] elts)
+    let () =
+      match ctx.update with Some upd -> upd ~id (Renderer render) | None -> ()
     in
-    let shallow =
-      Html.(div ~a:[ a_id id; a_user_data "morphdom-skip" "" ] [])
-    in
-    if not ctx.recurse then
-      (* TODO we currently send redundant updates: the entire branch from the component back to the root. Avoid! *)
-      ctx.update ~id ~html:(Format.asprintf "%a" (Html.pp_elt ()) deep);
-    { deep; shallow; local_subscriptions }
+    { render; hole }
 end
 
-type 'a app = app_context -> Bonesai.graph -> 'a component Bonesai.t
+type 'a app =
+  app_context ->
+  Bonesai.graph ->
+  ([< Html_types.flow5 ] as 'a) component Bonesai.t
 
 module Dream = struct
-  let app_context ~recurse =
+  let app_context () =
     {
-      recurse;
-      update = dummy_update;
+      update = None;
       subscriptions = WeakTable.create 7;
       next_component_id = 0;
       next_handler_id = 0;
     }
 
   let prerender app =
-    let ctx = app_context ~recurse:true in
+    let ctx = app_context () in
     let app = Bonesai.Runtime.compile (app ctx) in
-    let rendered_html = Bonesai.Runtime.observe app in
-    rendered_html.deep
+    let obs = Bonesai.Runtime.observe app in
+    obs.render ~pure:true ~shallow:false
 
   module Message = struct
     open Ppx_yojson_conv_lib.Yojson_conv.Primitives
@@ -164,7 +155,7 @@ module Dream = struct
   module Updates : sig
     type t
 
-    val create : unit -> t * (id:string -> html:string -> unit)
+    val create : unit -> t * (id:string -> packed_renderer -> unit)
     val send : t -> Dream.websocket -> unit Lwt.t
   end = struct
     type e = { mutable html : string; mutable cnt : int }
@@ -172,7 +163,9 @@ module Dream = struct
 
     let create () =
       let ht = Hashtbl.create 7 in
-      let fn ~id ~html =
+      let fn ~id (Renderer f) =
+        let dom = f ~shallow:true ~pure:false in
+        let html = Format.asprintf "%a" (Html.pp_elt ()) dom in
         match Hashtbl.find_opt ht id with
         | Some e ->
             e.cnt <- e.cnt + 1;
@@ -198,22 +191,25 @@ module Dream = struct
 
   let apply app_context app effect =
     let updates, update = Updates.create () in
-    app_context.update <- update;
+    app_context.update <- Some update;
     Bonesai.Runtime.schedule_effect app effect;
     (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
-    app_context.update <- dummy_update;
+    app_context.update <- None;
     updates
 
   let run app websocket =
-    let ctx = app_context ~recurse:false in
-    let app =
-      (* TODO clean up: compile is triggering updates on the first rendering, I just ignore them here *)
-      let () = ctx.update <- (fun ~id ~html -> ignore (id, html)) in
-      let app = Bonesai.Runtime.compile (app ctx) in
-      let () = ctx.update <- dummy_update in
-      app
+    let ctx = app_context () in
+    let app = Bonesai.Runtime.compile (app ctx) in
+    let%lwt () =
+      (* initialization: update entire DOM recursively. Sets component ids and js event handlers *)
+      let obs = Bonesai.Runtime.observe app in
+      let html =
+        let open Html in
+        div ~a:[ a_id "liveview" ] [ obs.render ~shallow:false ~pure:false ]
+      in
+      let str = Format.asprintf "%a" (Html.pp_elt ()) html in
+      Message.send_updates websocket [ ("liveview", str) ]
     in
-    let%lwt () = Message.send_info websocket "hello" in
     let rec loop () =
       let () =
         Gc.full_major ()
@@ -275,7 +271,7 @@ module Dream = struct
              script ~a:[ a_src "/morphdom.js" ] (txt "");
              script (cdata_script js);
            ])
-        (body [ x ])
+        (body [ div ~a:[ a_id "liveview" ] [ x ] ])
     in
     let str = Format.asprintf "%a" (Html.pp ()) html in
     Dream.html str
