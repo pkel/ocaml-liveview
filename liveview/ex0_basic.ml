@@ -19,6 +19,7 @@ module Counter = struct
     let+ state = state
     and+ inject = inject
     and+ id = Liveview.component_id ctx graph
+    (* TODO implicit identification of components and handlers *)
     and+ incr = Liveview.handler_id ctx graph
     and+ decr = Liveview.handler_id ctx graph in
     let render ctx =
@@ -48,6 +49,7 @@ module Input = struct
     let+ state = state
     and+ inject = inject
     and+ id = Liveview.component_id ctx graph
+    (* TODO implicit identification of components and handlers *)
     and+ upd = Liveview.handler_id ctx graph in
     let handler = (upd, inject) in
     let render ctx =
@@ -74,6 +76,7 @@ let main ~n1 ~n2 ~n3 ~s ctx graph =
        components. *)
     Bonesai.cutoff ~equal:(fun _ _ -> true) c
   in
+  (* TODO demonstrate how to use state across components *)
   let+ one = Counter.component ~start:n1 ctx graph |> cutoff
   and+ two = Counter.component ~start:n2 ctx graph |> cutoff
   and+ three = Counter.component ~start:n3 ctx graph |> cutoff
