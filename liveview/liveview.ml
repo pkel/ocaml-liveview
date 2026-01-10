@@ -235,115 +235,23 @@ module Dream = struct
     loop ()
 
   let dream_tyxml ~csrf_token x =
-    let js =
-      Printf.sprintf
-        "\n\
-        \    console.log('js: hello js');\n\
-        \    const loc = window.location;\n\
-        \    const tok = '%s';\n\
-        \    var ws_url;\n\
-        \    if (loc.search) {\n\
-        \      ws_url = \
-         `//${loc.host}${loc.pathname}${loc.search}&csrf_token=${tok}`;\n\
-        \    } else {\n\
-        \      ws_url = `//${loc.host}${loc.pathname}?csrf_token=${tok}`;\n\
-        \    }\n\
-        \    const socket = new WebSocket(ws_url);\n\n\
-        \    function patch_component(id, html) {\n\
-        \      const component = document.getElementById(id);\n\
-        \      if (!component) {\n\
-        \        console.log('error: patch component: component id not \
-         found:', id);\n\
-        \        return;\n\
-        \      }\n\
-        \      morphdom(component, html, {\n\
-        \        childrenOnly: true,\n\
-        \        onBeforeElUpdated: (fromEl, toEl) => {\n\
-        \          if (toEl.hasAttribute('data-morphdom-skip')) {\n\
-        \            return false; // skip updating this element\n\
-        \          } else {\n\
-        \            return true;\n\
-        \          };\n\
-        \        },\n\
-        \      });\n\
-        \    };\n\n\
-        \    socket.onmessage = function (e) {\n\
-        \      var obj = false;\n\
-        \      try {\n\
-        \        obj = JSON.parse(e.data);\n\
-        \      } catch (err) {\n\
-        \        console.log('ws rcv (parse error)', e.data);\n\
-        \        return;\n\
-        \      }\n\
-        \      console.log('ws rcv', obj);\n\
-        \      if (obj && obj[0] === 'Updates') {\n\
-        \        obj[1].forEach(upd => {\n\
-        \          patch_component(upd[0], upd[1]);\n\
-        \        });\n\
-        \      };\n\
-        \    };\n\n\
-        \    const queue = []\n\n\
-        \    function send(obj) {\n\
-        \      console.log('ws snd', obj);\n\
-        \      var msg = JSON.stringify(obj);\n\
-        \      if (socket.readyState !== 1) {\n\
-        \        queue.push(msg);\n\
-        \      } else {\n\
-        \        socket.send(msg);\n\
-        \      }\n\
-        \    };\n\n\
-        \    socket.onopen = function () {\n\
-        \      while (queue.length > 0) {\n\
-        \        socket.send(queue.shift());\n\
-        \      };\n\
-        \    };\n\n\
-        \    function send_info(text) {\n\
-        \      send(['Info', text])\n\
-        \    };\n\n\
-        \    function send_event() {\n\
-        \      send(['Event', obj])\n\
-        \    };\n\n\
-        \    function liveview_handler(name, arg1) {\n\
-        \      return ((id, event) => {\n\
-        \        event.preventDefault();\n\
-        \        event.stopPropagation();\n\n\
-        \        var obj = [name];\n\
-        \        if (arg1) {\n\
-        \          obj.push(arg1(event));\n\
-        \        }\n\
-        \        send(['Event', id, obj]);\n\
-        \      })\n\
-        \    };\n\n\
-        \    const liveview_onclick = liveview_handler('OnClick')\n\
-        \    const liveview_oninput = liveview_handler('OnInput', e => \
-         e.target.value)\n\n\
-        \    console.log('js: ready');\n\n\
-        \    send_info('load 1');\n\
-        \    send_info('load 2');\n\
-        \    "
-        csrf_token
-    in
+    let js = Printf.sprintf "liveview_boot('%s')" csrf_token in
     let html =
       let open Html in
       html
         (head
            (title (txt "Liveview"))
            [
+             script ~a:[ a_src "/liveview.js" ] (txt "");
+             script ~a:[ a_src "/morphdom.js" ] (txt "");
              script (cdata_script js);
-             script
-               ~a:
-                 [
-                   a_src
-                     "https://cdn.jsdelivr.net/npm/morphdom@2.7.5/dist/morphdom-umd.min.js";
-                 ]
-               (txt "");
            ])
         (body [ x ])
     in
     let str = Format.asprintf "%a" (Html.pp ()) html in
     Dream.html str
 
-  let handler app req =
+  let get_main app req =
     match Dream.header req "Upgrade" with
     | Some "websocket" -> begin
         match Dream.query req "csrf_token" with
@@ -362,4 +270,21 @@ module Dream = struct
         let app = app req in
         let bonesai_html = prerender app in
         dream_tyxml ~csrf_token bonesai_html
+
+  let get_crunch type_ fname _req =
+    (* TODO maybe; we can get fancy here and use Crunch.hash to support etag
+     * based hashing *)
+    match Crunch.read fname with
+    | None -> Dream.empty (`Status 500)
+    | Some content -> Dream.respond ~headers:[ ("Content-Type", type_) ] content
+
+  let handler app =
+    let open Dream in
+    router
+      [
+        get "/" (get_main app);
+        get "/favicon.ico" (get_crunch "image/x-icon" "favicon.ico");
+        get "/liveview.js" (get_crunch "text/javascript" "liveview.js");
+        get "/morphdom.js" (get_crunch "text/javascript" "morphdom.js");
+      ]
 end

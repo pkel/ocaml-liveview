@@ -76,8 +76,11 @@ let main ~n1 ~n2 ~n3 ~s ctx graph =
   let render ctx =
     [
       sub_component ctx one;
+      hr ();
       sub_component ctx two;
+      hr ();
       sub_component ctx three;
+      hr ();
       sub_component ctx four;
     ]
   in

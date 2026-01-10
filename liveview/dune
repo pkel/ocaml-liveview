@@ -1,6 +1,6 @@
 (library
  (name liveview)
- (modules liveview)
+ (modules liveview crunch)
  (libraries
   liveview.bonesai
   liveview.weak_ptr
@@ -11,6 +11,22 @@
  (preprocess
   (pps lwt_ppx ppx_yojson_conv))
  (public_name liveview))
+
+(rule
+ (targets crunch.ml)
+ (deps favicon.ico liveview.js morphdom.js)
+ (action
+  (run ocaml-crunch -m plain -e js -e ico -o crunch.ml -s .)))
+
+(rule
+ (targets morphdom.js)
+ (action
+  (run
+   curl
+   -Ls
+   "https://cdn.jsdelivr.net/npm/morphdom@2.7.5/dist/morphdom-umd.min.js"
+   -o
+   morphdom.js)))
 
 (executable
  (name ex0_basic)
