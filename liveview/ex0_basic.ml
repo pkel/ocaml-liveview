@@ -58,6 +58,11 @@ module Input = struct
         form
           [
             input
+            (* TODO I think [a_value = start] would make more sense; but this
+                 renders the input unusable. Morphdom resets the field on each
+                 update. *)
+            (* TODO test high latency; will the input be reset to an delayed
+                 value? *)
               ~a:[ a_input_type `Text; a_oninput ctx handler; a_value state ]
               ();
           ];
