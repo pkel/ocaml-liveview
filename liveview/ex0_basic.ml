@@ -67,10 +67,17 @@ end
 
 let main ~n1 ~n2 ~n3 ~s ctx graph =
   let open Liveview in
-  let+ one = Counter.component ~start:n1 ctx graph
-  and+ two = Counter.component ~start:n2 ctx graph
-  and+ three = Counter.component ~start:n3 ctx graph
-  and+ four = Input.component ~start:s ctx graph
+  let cutoff c =
+    (* TODO I think this should apply to all sub_components; the API should do
+       it automatically to avoid redundant updates of the parent component.
+       Exception maybe: components that return a value to be used in other
+       components. *)
+    Bonesai.cutoff ~equal:(fun _ _ -> true) c
+  in
+  let+ one = Counter.component ~start:n1 ctx graph |> cutoff
+  and+ two = Counter.component ~start:n2 ctx graph |> cutoff
+  and+ three = Counter.component ~start:n3 ctx graph |> cutoff
+  and+ four = Input.component ~start:s ctx graph |> cutoff
   and+ id = Liveview.component_id ctx graph in
   let open Html in
   let render ctx =
