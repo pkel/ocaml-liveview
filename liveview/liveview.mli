@@ -38,4 +38,7 @@ type 'a app = app_context -> Bonesai.graph -> 'a component Bonesai.t
 module Dream : sig
   val prerender : 'a app -> 'a Html.elt
   val run : 'a app -> Dream.websocket -> unit Lwt.t
+
+  val handler : (Dream.request -> [ `Div ] app) -> Dream.handler
+  (** Dream request handler for running the app over websockets *)
 end
