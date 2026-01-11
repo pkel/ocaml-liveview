@@ -234,6 +234,10 @@ module Dream = struct
                       let%lwt () = Message.send_error websocket msg in
                       loop ()
                   | Some effect ->
+                    let%lwt () =
+                      Lwt_unix.sleep 0.5
+                      (* add latency to test tolerance *)
+                    in
                       let updates =
                         Dream.log "%s: activate" subid;
                         apply ctx app effect
