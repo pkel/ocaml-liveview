@@ -1,8 +1,11 @@
 open Tyxml
 module WeakTable = Ephemeron.K1.Make (String)
 
+type component_id = string
+type handler_id = string
 type 'a handler0 = 'a -> unit Bonesai.effect
 type subscription = OnClick of unit handler0 | OnInput of string handler0
+type 'a handler = handler_id * 'a handler0
 type 'a renderer = shallow:bool -> pure:bool -> 'a Html.elt
 type packed_renderer = Renderer : 'a renderer -> packed_renderer
 
@@ -21,8 +24,6 @@ type html_context = {
 }
 
 type 'a component = { render : 'a renderer; hole : pure:bool -> 'a Html.elt }
-type component_id = string
-type handler_id = string
 
 let component_id (ctx : app_context) _graph =
   (* graph argument is to enforce that this is not called at runtime *)
@@ -36,10 +37,16 @@ let handler_id (ctx : app_context) _graph =
   ctx.next_handler_id <- ctx.next_handler_id + 1;
   Bonesai.return id
 
+let handler' inject to_action ctx graph =
+  let open Bonesai.Let_syntax in
+  let+ inject = inject and+ id = handler_id ctx graph in
+  let handler arg = inject (to_action arg) in
+  (id, handler)
+
+let handler inject action = handler' inject (fun () -> action)
+
 module Html = struct
   include Html
-
-  type 'a handler = handler_id * ('a -> unit Bonesai.effect)
 
   let js_side_event_handler (ctx : html_context) id subscription =
     let () = WeakTable.add ctx.global_subscriptions id subscription in

@@ -1,61 +1,58 @@
 module Counter = struct
   open Liveview
 
-  module Action = struct
-    type t = Increment | Decrement
-  end
+  type action = Incr | Decr
 
   let apply_action (_ : _ Bonesai.Apply_action_context.t) model action =
-    match (action : Action.t) with
-    | Increment -> model + 1
-    | Decrement -> model - 1
+    match action with Incr -> model + 1 | Decr -> model - 1
 
-  let component ~start ctx graph : [> `Div ] component Bonesai.t =
+  let component ~start ctx graph =
+    (* TODO we're passing a lot of ctx graph arguments around, can we eliminate
+       some? Maybe merge ctx+graph? They seem to serve a similar purpose *)
     let state, inject =
       Bonesai.state_machine graph ~default_model:start ~apply_action
-    and incr = Liveview.handler_id ctx graph
-    (* TODO implicit identification handlers *)
-    and decr = Liveview.handler_id ctx graph
-    and render state inject incr decr ctx =
+    in
+    let incr = Liveview.handler inject Incr ctx graph
+    and decr = Liveview.handler inject Decr ctx graph
+    and render state incr decr ctx =
       let open Html in
-      let button label_ action id =
-        let handler = (id, fun () -> inject action) in
-        button ~a:[ a_onclick ctx handler ] [ txt label_ ]
+      let button label_ action =
+        button ~a:[ a_onclick ctx action ] [ txt label_ ]
       in
-      [
-        button "-1" Action.Decrement decr;
-        txt (Int.to_string state);
-        button "+1" Action.Increment incr;
-      ]
+      [ button "-1" decr; txt (Int.to_string state); button "+1" incr ]
     in
     (* TODO can we do some let+ and+ in magic here to avoid all the arguments? *)
-    Component.(arg4 div) state inject incr decr render ctx graph
+    Component.(arg3 div) state incr decr render ctx graph
 end
 
 module Input = struct
   open Liveview
 
-  let component ~start ctx graph : [> `Div ] component Bonesai.t =
+  type action = Update of string
+
+  let update string = Update string
+
+  let apply_action (_ : _ Bonesai.Apply_action_context.t) _old = function
+    | Update new_ -> new_
+
+  let component ~start ctx graph =
     let state, inject =
-      Bonesai.state_machine graph ~default_model:start
-        ~apply_action:(fun (_ : _ Bonesai.Apply_action_context.t) _old new_ ->
-          new_)
-    and upd = Liveview.handler_id ctx graph
-    (* TODO implicit identification handlers *)
-    and render state inject upd ctx =
-      let handler = (upd, inject) in
+      Bonesai.state_machine graph ~default_model:start ~apply_action
+    in
+    let update = Liveview.handler' inject update ctx graph
+    and render state update ctx =
       let open Html in
       [
         form
           [
             input
-              ~a:[ a_input_type `Text; a_oninput ctx handler; a_value state ]
+              ~a:[ a_input_type `Text; a_oninput ctx update; a_value state ]
               ();
           ];
         txt state;
       ]
     in
-    Component.(arg3 div) state inject upd render ctx graph
+    Component.(arg2 div) state update render ctx graph
 end
 
 let main ~n1 ~n2 ~n3 ~s ctx graph =
