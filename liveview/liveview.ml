@@ -101,25 +101,44 @@ module Component = struct
     in
     { render; hole }
 
+  open Bonesai
+
+  let cutoff (c : 'a component t) : 'a component t =
+    (* the current type of components does not have anything of use for
+       parent components. So they should never fire an update. *)
+    cutoff ~equal:(fun _ _ -> true) c
+
   let arg1 container a render ctx graph =
-    let+ a = a and+ id = component_id ctx graph in
-    t container id (render a) ctx
+    let raw =
+      let+ a = a and+ id = component_id ctx graph in
+      t container id (render a) ctx
+    in
+    cutoff raw
 
   let arg2 container a b render ctx graph =
-    let+ a = a and+ b = b and+ id = component_id ctx graph in
-    t container id (render a b) ctx
+    let raw =
+      let+ a = a and+ b = b and+ id = component_id ctx graph in
+      t container id (render a b) ctx
+    in
+    cutoff raw
 
   let arg3 container a b c render ctx graph =
-    let+ a = a and+ b = b and+ c = c and+ id = component_id ctx graph in
-    t container id (render a b c) ctx
+    let raw =
+      let+ a = a and+ b = b and+ c = c and+ id = component_id ctx graph in
+      t container id (render a b c) ctx
+    in
+    cutoff raw
 
   let arg4 container a b c d render ctx graph =
-    let+ a = a
-    and+ b = b
-    and+ c = c
-    and+ d = d
-    and+ id = component_id ctx graph in
-    t container id (render a b c d) ctx
+    let raw =
+      let+ a = a
+      and+ b = b
+      and+ c = c
+      and+ d = d
+      and+ id = component_id ctx graph in
+      t container id (render a b c d) ctx
+    in
+    cutoff raw
 end
 
 type 'a app =

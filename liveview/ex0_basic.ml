@@ -60,18 +60,11 @@ end
 
 let main ~n1 ~n2 ~n3 ~s ctx graph =
   let open Liveview in
-  let cutoff c =
-    (* TODO I think this should apply to all sub_components; the API should do
-       it automatically to avoid redundant updates of the parent component.
-       Exception maybe: components that return a value to be used in other
-       components. *)
-    Bonesai.cutoff ~equal:(fun _ _ -> true) c
-  in
   (* TODO demonstrate how to use state across components *)
-  let one = Counter.component ~start:n1 ctx graph |> cutoff
-  and two = Counter.component ~start:n2 ctx graph |> cutoff
-  and three = Counter.component ~start:n3 ctx graph |> cutoff
-  and four = Input.component ~start:s ctx graph |> cutoff
+  let one = Counter.component ~start:n1 ctx graph
+  and two = Counter.component ~start:n2 ctx graph
+  and three = Counter.component ~start:n3 ctx graph
+  and four = Input.component ~start:s ctx graph
   and render one two three four ctx =
     let open Html in
     [
