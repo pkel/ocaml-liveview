@@ -15,14 +15,10 @@ module Counter = struct
   let component ~start ctx graph : [> `Div ] component Bonesai.t =
     let state, inject =
       Bonesai.state_machine graph ~default_model:start ~apply_action
-    in
-    let+ state = state
-    and+ inject = inject
-    and+ id = Liveview.component_id ctx graph
-    (* TODO implicit identification of components and handlers *)
-    and+ incr = Liveview.handler_id ctx graph
-    and+ decr = Liveview.handler_id ctx graph in
-    let render ctx =
+    and incr = Liveview.handler_id ctx graph
+    (* TODO implicit identification handlers *)
+    and decr = Liveview.handler_id ctx graph
+    and render state inject incr decr ctx =
       let open Html in
       let button label_ action id =
         let handler = (id, fun () -> inject action) in
@@ -34,7 +30,7 @@ module Counter = struct
         button "+1" Action.Increment incr;
       ]
     in
-    Component.div id render ctx
+    Component'.(arg4 div) state inject incr decr render ctx graph
 end
 
 module Input = struct
@@ -60,7 +56,7 @@ module Input = struct
         txt state;
       ]
     in
-    Component'.div3 ~render state inject upd ctx graph
+    Component'.(arg3 div) state inject upd render ctx graph
 end
 
 let main ~n1 ~n2 ~n3 ~s ctx graph =

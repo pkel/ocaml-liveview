@@ -91,17 +91,58 @@ end
 module Component' = struct
   open Bonesai.Let_syntax
 
-  let div1 ~render a ctx graph =
+  type ('outer, 'inner) container = {
+    full : id:string -> pure:bool -> 'inner Html.elt list -> 'outer Html.elt;
+    hole : id:string -> pure:bool -> 'outer Html.elt;
+  }
+  (* TODO pure hole does not make much sense; it's three modes not four *)
+
+  let div =
+    let open Html in
+    let id_attr ~pure id =
+      if pure then Html.a_user_data "liveview" "component" else Html.a_id id
+    in
+    let full ~id ~pure elts = div ~a:[ id_attr ~pure id ] elts
+    and hole ~id ~pure =
+      div ~a:[ id_attr ~pure id; a_user_data "morph-skip" "" ] []
+    in
+    { full; hole }
+
+  let t container id render (ctx : app_context) =
+    let render ~shallow ~pure =
+      let () = Dream.log "%s: render ~shallow:%b ~pure:%b" id shallow pure in
+      let elts =
+        let ctx : html_context =
+          { global_subscriptions = ctx.subscriptions; shallow; pure }
+        in
+        render ctx
+      in
+      container.full ~id ~pure elts
+    and hole ~pure = container.hole ~id ~pure in
+    let () =
+      match ctx.update with Some upd -> upd ~id (Renderer render) | None -> ()
+    in
+    { render; hole }
+
+  let arg1 container a render ctx graph =
     let+ a = a and+ id = component_id ctx graph in
-    Component.div id (render a) ctx
+    t container id (render a) ctx
 
-  let div2 ~render a b ctx graph =
+  let arg2 container a b render ctx graph =
     let+ a = a and+ b = b and+ id = component_id ctx graph in
-    Component.div id (render a b) ctx
+    t container id (render a b) ctx
 
-  let div3 ~render a b c ctx graph =
+  let arg3 container a b c render ctx graph =
     let+ a = a and+ b = b and+ c = c and+ id = component_id ctx graph in
-    Component.div id (render a b c) ctx
+    t container id (render a b c) ctx
+
+  let arg4 container a b c d render ctx graph =
+    let+ a = a
+    and+ b = b
+    and+ c = c
+    and+ d = d
+    and+ id = component_id ctx graph in
+    t container id (render a b c d) ctx
 end
 
 type 'a app =

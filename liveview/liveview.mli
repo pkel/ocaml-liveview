@@ -34,7 +34,7 @@ module Component : sig
     component_id ->
     (html_context -> [< div_content_fun ] Html.elt list) ->
     app_context ->
-    [> `Div ] component
+    [> div ] component
 end
 
 module Component' : sig
@@ -43,30 +43,47 @@ module Component' : sig
   open Bonesai
   open Html_types
 
-  val div1 :
-    render:('a -> html_context -> [< div_content_fun ] Html.elt list) ->
+  type ('outer, 'inner) container
+
+  val div : ([> div ], [< div_content_fun ]) container
+
+  val arg1 :
+    ('outer, 'inner) container ->
     'a t ->
+    ('a -> html_context -> 'inner Html.elt list) ->
     app_context ->
     graph ->
-    [> `Div ] component t
+    'outer component t
 
-  val div2 :
-    render:('a -> 'b -> html_context -> [< div_content_fun ] Html.elt list) ->
+  val arg2 :
+    ('outer, 'inner) container ->
     'a t ->
     'b t ->
+    ('a -> 'b -> html_context -> 'inner Html.elt list) ->
     app_context ->
     graph ->
-    [> `Div ] component t
+    'outer component t
 
-  val div3 :
-    render:
-      ('a -> 'b -> 'c -> html_context -> [< div_content_fun ] Html.elt list) ->
+  val arg3 :
+    ('outer, 'inner) container ->
     'a t ->
     'b t ->
     'c t ->
+    ('a -> 'b -> 'c -> html_context -> 'inner Html.elt list) ->
     app_context ->
     graph ->
-    [> `Div ] component t
+    'outer component t
+
+  val arg4 :
+    ('outer, 'inner) container ->
+    'a t ->
+    'b t ->
+    'c t ->
+    'd t ->
+    ('a -> 'b -> 'c -> 'd -> html_context -> 'inner Html.elt list) ->
+    app_context ->
+    graph ->
+    'outer component t
 end
 
 type 'a app =
