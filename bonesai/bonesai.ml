@@ -1,30 +1,16 @@
 type 'a t = 'a Value.t
 
-let return x = Value.Constant x
-let map v ~f = Value.Map { t = v; f }
-
-(* TODO do we need this? *)
-let map2 v1 v2 ~f = Value.Map2 { t1 = v1; t2 = v2; f }
-let both a b = Value.Both (a, b)
+let return = Value.constant
+let map = Value.map
+let map2 = Value.map2
+let both = Value.both
 
 module Let_syntax = struct
   let ( let+ ) v f = map v ~f
   let ( and+ ) = both
 end
 
-let cutoff v ~equal = Value.Cutoff { equal; t = v }
-
-module Graph : sig
-  type t
-
-  val build_with_graph : (t -> 'a) -> 'a
-end = struct
-  type t = unit
-
-  let build_with_graph fn = fn ()
-end
-
-type graph = Graph.t
+let cutoff = Value.cutoff
 
 module Effect : sig
   type 'a t
@@ -60,22 +46,38 @@ end = struct
 end
 
 type 'a effect = 'a Effect.t
+type graph = Value.proof option ref
+
+let identify_node graph =
+  match !graph with
+  | None -> failwith "cannot access node id outside of computation"
+  | Some proof -> (
+      match Value.id proof with
+      | Ok id -> id
+      | Error `Outside_computation ->
+          failwith "cannot access node id outside of computation")
 
 module Runtime = struct
   type 'a app = 'a React.signal
 
   let compile bonesai =
-    let value = Graph.build_with_graph bonesai in
-    Value.eval value
+    let graph = ref None in
+    let value = bonesai graph in
+    let signal, proof = Value.eval value in
+    let () = graph := Some proof in
+    signal
 
   let observe = React.S.value
   let schedule_effect _app = Effect.execute
 end
 
+let signal = Value.signal
+let constant = Value.constant
+
 let state ?(equal = ( == )) start _graph =
-  let signal, setter = React.S.create ~eq:equal start in
+  let s, setter = React.S.create ~eq:equal start in
   let set_effect new_model = Effect.create (fun () -> setter new_model) in
-  (Value.Signal signal, Value.Constant set_effect)
+  (signal s, constant set_effect)
 
 let state_opt ?(equal = ( == )) ?default_model _graph =
   let equal a b =
@@ -84,22 +86,22 @@ let state_opt ?(equal = ( == )) ?default_model _graph =
   state ~equal default_model _graph
 
 let state' ?(equal = ( == )) start _graph =
-  let signal, setter = React.S.create ~eq:equal start in
+  let s, setter = React.S.create ~eq:equal start in
   let set_effect update =
     Effect.create (fun () ->
-        let old_model = React.S.value signal in
+        let old_model = React.S.value s in
         setter (update old_model))
   in
-  (Value.Signal signal, Value.Constant set_effect)
+  (signal s, constant set_effect)
 
 let toggle ~default_model _graph =
-  let signal, setter = React.S.create ~eq:( == ) default_model in
+  let s, setter = React.S.create ~eq:( == ) default_model in
   let toggle_effect =
     Effect.create (fun () ->
-        let old_model = React.S.value signal in
+        let old_model = React.S.value s in
         setter (not old_model))
   in
-  (Value.Signal signal, Value.Constant toggle_effect)
+  (signal s, constant toggle_effect)
 
 module Toggle = struct
   type nonrec t = {
@@ -110,18 +112,18 @@ module Toggle = struct
 end
 
 let toggle' ~default_model _graph =
-  let signal, setter = React.S.create ~eq:( == ) default_model in
+  let s, setter = React.S.create ~eq:( == ) default_model in
   let set_effect new_model = Effect.create (fun () -> setter new_model) in
   let toggle_effect =
     Effect.create (fun () ->
-        let old_model = React.S.value signal in
+        let old_model = React.S.value s in
         setter (not old_model))
   in
   Toggle.
     {
-      state = Value.Signal signal;
-      set_state = Value.Constant set_effect;
-      toggle = Value.Constant toggle_effect;
+      state = signal s;
+      set_state = constant set_effect;
+      toggle = constant toggle_effect;
     }
 
 module Apply_action_context = struct
@@ -135,14 +137,14 @@ module Apply_action_context = struct
 end
 
 let state_machine ?(equal = ( == )) ~default_model ~apply_action _graph =
-  let signal, setter = React.S.create ~eq:equal default_model in
+  let s, setter = React.S.create ~eq:equal default_model in
   let rec ctx =
     Apply_action_context.
       { inject = apply_effect; schedule_event = Effect.execute }
   and apply_effect action =
     Effect.create (fun () ->
-        let old_model = React.S.value signal in
+        let old_model = React.S.value s in
         let new_model = apply_action ctx old_model action in
         setter new_model)
   in
-  (Value.Signal signal, Value.Constant apply_effect)
+  (signal s, constant apply_effect)

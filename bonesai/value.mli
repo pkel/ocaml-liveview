@@ -1,9 +1,14 @@
-type _ t =
-  | Constant : 'a -> 'a t
-  | Signal : 'a React.signal -> 'a t
-  | Cutoff : { t : 'a t; equal : 'a -> 'a -> bool } -> 'a t
-  | Both : 'a t * 'b t -> ('a * 'b) t
-  | Map : { t : 'a t; f : 'a -> 'b } -> 'b t
-  | Map2 : { t1 : 't1 t; t2 : 't2 t; f : 't1 -> 't2 -> 'r } -> 'r t
+type 'a t
 
-val eval : 'a t -> 'a React.signal
+val constant : 'a -> 'a t
+val signal : 'a React.signal -> 'a t
+val cutoff : 'a t -> equal:('a -> 'a -> bool) -> 'a t
+val both : 'a t -> 'b t -> ('a * 'b) t
+val map : 'a t -> f:('a -> 'b) -> 'b t
+val map2 : 'a t -> 'b t -> f:('a -> 'b -> 'c) -> 'c t
+
+type proof
+(** proof that value has been compiled *)
+
+val eval : 'a t -> 'a React.signal * proof
+val id : proof -> (string, [ `Outside_computation ]) result

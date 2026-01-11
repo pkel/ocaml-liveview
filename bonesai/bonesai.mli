@@ -22,7 +22,21 @@ type graph
     [local_ Bonesai.graph]
 
     2. Runtime. The application has started and modifying the graph is no longer
-    permitted. *)
+    permitted.
+
+    pkel: Bonesai.t is applicative only (map), no monad (bind). Anything that
+    takes a graph argument returns Bonesai.t's. These can then only be used in
+    applicative form. In order to create a new Bonesai.t that is not merely a
+    pure computation (map) you have to present the graph argument.
+
+    I will now introduce an exception to this rule: a way to identify the graph
+    node from the computation (within the mapped function). I think this is fine
+    as long as the ids are stable. Should be okay, as the graph is constant
+    anyways.
+
+    We will need some map/reduce mechanism in the future to handle liveview
+    components with a changing number of elements (e.g. think adding list
+    items). Hope this will not kill the identification mechanism. *)
 
 val return : 'a -> 'a t
 (** [return] produces a [Bonesai.t] whose inner value is constant. *)
@@ -46,6 +60,11 @@ val cutoff : 'a t -> equal:('a -> 'a -> bool) -> 'a t
     But sometimes, you may want to consider two contained values to be "close
     enough" and cut off recomputation. You can do that by passing a custom
     equality function to [Bonesai.cutoff]. *)
+
+val identify_node : graph -> string
+(** Return a unique identifier for the computation node (Bonsai.t) executing the
+    current computation. This should only be called at runtime and from within
+    the pure computation. I'll try to enforce this with exceptions *)
 
 val state :
   ?equal:('model -> 'model -> bool) ->

@@ -52,6 +52,7 @@ module Input = struct
     (* TODO implicit identification of components and handlers *)
     and+ upd = Liveview.handler_id ctx graph in
     let handler = (upd, inject) in
+    let _ = Bonesai.identify_node graph in
     let render ctx =
       let open Html in
       [
