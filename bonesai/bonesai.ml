@@ -46,26 +46,15 @@ end = struct
 end
 
 type 'a effect = 'a Effect.t
-type graph = Value.proof option ref
-
-let identify_node graph =
-  match !graph with
-  | None -> failwith "cannot access node id outside of computation"
-  | Some proof -> (
-      match Value.id proof with
-      | Ok id -> id
-      | Error `Outside_computation ->
-          failwith "cannot access node id outside of computation")
+type graph = unit
 
 module Runtime = struct
   type 'a app = 'a React.signal
 
   let compile bonesai =
-    let graph = ref None in
+    let graph = () in
     let value = bonesai graph in
-    let signal, proof = Value.eval value in
-    let () = graph := Some proof in
-    signal
+    Value.eval value
 
   let observe = React.S.value
   let schedule_effect _app = Effect.execute
