@@ -45,14 +45,10 @@ module Input = struct
       Bonesai.state_machine graph ~default_model:start
         ~apply_action:(fun (_ : _ Bonesai.Apply_action_context.t) _old new_ ->
           new_)
-    in
-    let+ state = state
-    and+ inject = inject
-    and+ id = Liveview.component_id ctx graph
-    (* TODO implicit identification of components and handlers *)
-    and+ upd = Liveview.handler_id ctx graph in
-    let handler = (upd, inject) in
-    let render ctx =
+    and upd = Liveview.handler_id ctx graph
+    (* TODO implicit identification handlers *)
+    and render state inject upd ctx =
+      let handler = (upd, inject) in
       let open Html in
       [
         form
@@ -64,7 +60,7 @@ module Input = struct
         txt state;
       ]
     in
-    Component.div id render ctx
+    Component'.div3 ~render state inject upd ctx graph
 end
 
 let main ~n1 ~n2 ~n3 ~s ctx graph =

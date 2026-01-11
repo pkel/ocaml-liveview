@@ -88,6 +88,22 @@ module Component = struct
     { render; hole }
 end
 
+module Component' = struct
+  open Bonesai.Let_syntax
+
+  let div1 ~render a ctx graph =
+    let+ a = a and+ id = component_id ctx graph in
+    Component.div id (render a) ctx
+
+  let div2 ~render a b ctx graph =
+    let+ a = a and+ b = b and+ id = component_id ctx graph in
+    Component.div id (render a b) ctx
+
+  let div3 ~render a b c ctx graph =
+    let+ a = a and+ b = b and+ c = c and+ id = component_id ctx graph in
+    Component.div id (render a b c) ctx
+end
+
 type 'a app =
   app_context ->
   Bonesai.graph ->

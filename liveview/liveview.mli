@@ -37,6 +37,38 @@ module Component : sig
     [> `Div ] component
 end
 
+module Component' : sig
+  (* wrappers around Html.{div,...} that create new liveview components *)
+
+  open Bonesai
+  open Html_types
+
+  val div1 :
+    render:('a -> html_context -> [< div_content_fun ] Html.elt list) ->
+    'a t ->
+    app_context ->
+    graph ->
+    [> `Div ] component t
+
+  val div2 :
+    render:('a -> 'b -> html_context -> [< div_content_fun ] Html.elt list) ->
+    'a t ->
+    'b t ->
+    app_context ->
+    graph ->
+    [> `Div ] component t
+
+  val div3 :
+    render:
+      ('a -> 'b -> 'c -> html_context -> [< div_content_fun ] Html.elt list) ->
+    'a t ->
+    'b t ->
+    'c t ->
+    app_context ->
+    graph ->
+    [> `Div ] component t
+end
+
 type 'a app =
   app_context ->
   Bonesai.graph ->
