@@ -7,14 +7,21 @@ function liveview_patch(id, html) {
     console.log('error: patch component: component id not found:', id);
     return;
   }
-  morphdom(component, html, {
-    childrenOnly: true,
-    onBeforeElUpdated: (fromEl, toEl) => {
-      if (toEl.hasAttribute('data-morphdom-skip')) {
-        return false; // skip updating this element
-      } else {
-        return true;
-      };
+  Idiomorph.morph(component, html, {
+    // this prevents truncation of text input when input effect is delayed
+    // TODO some more thought required to preserve input values on navigation
+    // and soft refresh, where browsers restore the input without liveview
+    // noticing it.
+    ignoreActiveValue: true,
+    callbacks: {
+      beforeNodeMorphed: (oldNode, newNode) => {
+        if (newNode.hasAttribute && newNode.hasAttribute('data-morph-skip')) {
+          return false; // skip updating this element
+        } else {
+          console.log("liveview: morph", newNode);
+          return true;
+        };
+      },
     },
   });
 };

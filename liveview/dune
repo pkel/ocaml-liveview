@@ -14,19 +14,14 @@
 
 (rule
  (targets crunch.ml)
- (deps favicon.ico liveview.js morphdom.js)
+ (deps favicon.ico liveview.js idiomorph.js)
  (action
   (run ocaml-crunch -m plain -e js -e ico -o crunch.ml -s .)))
 
 (rule
- (targets morphdom.js)
+ (targets idiomorph.js)
  (action
-  (run
-   curl
-   -Ls
-   "https://cdn.jsdelivr.net/npm/morphdom@2.7.5/dist/morphdom-umd.min.js"
-   -o
-   morphdom.js)))
+  (run curl -Ls "https://unpkg.com/idiomorph@0.7.4" -o idiomorph.js)))
 
 (executable
  (name ex0_basic)

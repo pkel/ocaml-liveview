@@ -80,7 +80,7 @@ module Component = struct
       in
       Html.(div ~a:[ id_attr ~pure ] elts)
     and hole ~pure =
-      Html.(div ~a:[ id_attr ~pure; a_user_data "morphdom-skip" "" ] [])
+      Html.(div ~a:[ id_attr ~pure; a_user_data "morph-skip" "" ] [])
     in
     let () =
       match ctx.update with Some upd -> upd ~id (Renderer render) | None -> ()
@@ -234,10 +234,10 @@ module Dream = struct
                       let%lwt () = Message.send_error websocket msg in
                       loop ()
                   | Some effect ->
-                    let%lwt () =
-                      Lwt_unix.sleep 0.5
-                      (* add latency to test tolerance *)
-                    in
+                      let%lwt () =
+                        Lwt_unix.sleep 0.5
+                        (* add latency to test tolerance *)
+                      in
                       let updates =
                         Dream.log "%s: activate" subid;
                         apply ctx app effect
@@ -272,7 +272,7 @@ module Dream = struct
            (title (txt "Liveview"))
            [
              script ~a:[ a_src "/liveview.js" ] (txt "");
-             script ~a:[ a_src "/morphdom.js" ] (txt "");
+             script ~a:[ a_src "/idiomorph.js" ] (txt "");
              script (cdata_script js);
            ])
         (body [ div ~a:[ a_id "liveview" ] [ x ] ])
@@ -313,7 +313,7 @@ module Dream = struct
       [
         get "/" (get_main app);
         get "/favicon.ico" (get_crunch "image/x-icon" "favicon.ico");
+        get "/idiomorph.js" (get_crunch "text/javascript" "idiomorph.js");
         get "/liveview.js" (get_crunch "text/javascript" "liveview.js");
-        get "/morphdom.js" (get_crunch "text/javascript" "morphdom.js");
       ]
 end
