@@ -28,17 +28,6 @@ val component_id : app_context -> Bonesai.graph -> component_id Bonesai.t
 
 module Component : sig
   (* wrappers around Html.{div,...} that create new liveview components *)
-  open Html_types
-
-  val div :
-    component_id ->
-    (html_context -> [< div_content_fun ] Html.elt list) ->
-    app_context ->
-    [> div ] component
-end
-
-module Component' : sig
-  (* wrappers around Html.{div,...} that create new liveview components *)
 
   open Bonesai
   open Html_types

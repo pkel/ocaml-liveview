@@ -66,29 +66,6 @@ module Html = struct
 end
 
 module Component = struct
-  let div id render (ctx : app_context) =
-    let id_attr ~pure =
-      if pure then Html.a_user_data "liveview" "component" else Html.a_id id
-    in
-    let render ~shallow ~pure =
-      let () = Dream.log "%s: render ~shallow:%b ~pure:%b" id shallow pure in
-      let elts =
-        let ctx : html_context =
-          { global_subscriptions = ctx.subscriptions; shallow; pure }
-        in
-        render ctx
-      in
-      Html.(div ~a:[ id_attr ~pure ] elts)
-    and hole ~pure =
-      Html.(div ~a:[ id_attr ~pure; a_user_data "morph-skip" "" ] [])
-    in
-    let () =
-      match ctx.update with Some upd -> upd ~id (Renderer render) | None -> ()
-    in
-    { render; hole }
-end
-
-module Component' = struct
   open Bonesai.Let_syntax
 
   type ('outer, 'inner) container = {

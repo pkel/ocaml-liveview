@@ -1,5 +1,3 @@
-open Bonesai.Let_syntax
-
 module Counter = struct
   open Liveview
 
@@ -30,7 +28,8 @@ module Counter = struct
         button "+1" Action.Increment incr;
       ]
     in
-    Component'.(arg4 div) state inject incr decr render ctx graph
+    (* TODO can we do some let+ and+ in magic here to avoid all the arguments? *)
+    Component.(arg4 div) state inject incr decr render ctx graph
 end
 
 module Input = struct
@@ -56,7 +55,7 @@ module Input = struct
         txt state;
       ]
     in
-    Component'.(arg3 div) state inject upd render ctx graph
+    Component.(arg3 div) state inject upd render ctx graph
 end
 
 let main ~n1 ~n2 ~n3 ~s ctx graph =
@@ -69,13 +68,12 @@ let main ~n1 ~n2 ~n3 ~s ctx graph =
     Bonesai.cutoff ~equal:(fun _ _ -> true) c
   in
   (* TODO demonstrate how to use state across components *)
-  let+ one = Counter.component ~start:n1 ctx graph |> cutoff
-  and+ two = Counter.component ~start:n2 ctx graph |> cutoff
-  and+ three = Counter.component ~start:n3 ctx graph |> cutoff
-  and+ four = Input.component ~start:s ctx graph |> cutoff
-  and+ id = Liveview.component_id ctx graph in
-  let open Html in
-  let render ctx =
+  let one = Counter.component ~start:n1 ctx graph |> cutoff
+  and two = Counter.component ~start:n2 ctx graph |> cutoff
+  and three = Counter.component ~start:n3 ctx graph |> cutoff
+  and four = Input.component ~start:s ctx graph |> cutoff
+  and render one two three four ctx =
+    let open Html in
     [
       sub_component ctx one;
       hr ();
@@ -86,7 +84,7 @@ let main ~n1 ~n2 ~n3 ~s ctx graph =
       sub_component ctx four;
     ]
   in
-  Component.div id render ctx
+  Component.(arg4 div) one two three four render ctx graph
 
 (* read arguments from Dream request *)
 
