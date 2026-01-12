@@ -9,9 +9,10 @@ type 'a handler = handler_id * 'a handler0
 type 'a renderer = shallow:bool -> pure:bool -> 'a Html.elt
 type packed_renderer = Renderer : 'a renderer -> packed_renderer
 
+type _ Effect.t +=
+  | Update : { id : string; r : packed_renderer } -> unit Effect.t
+
 type app_context = {
-  mutable update : (id:string -> packed_renderer -> unit) option;
-      (* TODO use effects instead? *)
   subscriptions : subscription WeakTable.t;
   mutable next_component_id : int;
   mutable next_handler_id : int;
@@ -103,9 +104,14 @@ module Component = struct
       in
       container.full ~id ~pure elts
     and hole ~pure = container.hole ~id ~pure in
-    let () =
-      match ctx.update with Some upd -> upd ~id (Renderer render) | None -> ()
-    in
+    (* TODO Simplify renderer and component types. I think
+       - the renderer in the update is always called with ~pure:false ~shallow:true
+       - hole is never ~pure
+       - hole can be reconstructed from the container type and id
+       - render is never called with ~shallow
+       - wait ... sub_component does ... so I have to think more
+    *)
+    Effect.perform (Update { id; r = Renderer render });
     { render; hole }
 
   open Bonesai
@@ -156,17 +162,35 @@ type 'a app =
 module Dream = struct
   let app_context () =
     {
-      update = None;
       subscriptions = WeakTable.create 7;
       next_component_id = 0;
       next_handler_id = 0;
     }
 
+  let with_handler f x (handler : id:string -> packed_renderer -> unit) =
+    let open Effect in
+    let open Effect.Deep in
+    try_with f x
+      {
+        effc =
+          (fun (type a) (eff : a t) ->
+            match eff with
+            | Update { id; r } ->
+                Some
+                  (fun (k : (a, _) continuation) -> continue k (handler ~id r))
+            | _ -> None);
+      }
+
+  let without_handler f x = with_handler f x (fun ~id:_ _ -> ())
+
   let prerender app =
     let ctx = app_context () in
-    let app = Bonesai.Runtime.compile (app ctx) in
-    let obs = Bonesai.Runtime.observe app in
-    obs.render ~pure:true ~shallow:false
+    let f () =
+      let app = Bonesai.Runtime.compile (app ctx) in
+      let obs = Bonesai.Runtime.observe app in
+      obs.render ~pure:true ~shallow:false
+    in
+    without_handler f ()
 
   module Message = struct
     open Ppx_yojson_conv_lib.Yojson_conv.Primitives
@@ -249,17 +273,18 @@ module Dream = struct
         (Hashtbl.to_seq t |> Lwt_stream.of_seq)
   end
 
-  let apply app_context app effect =
-    let updates, update = Updates.create () in
-    app_context.update <- Some update;
-    Bonesai.Runtime.schedule_effect app effect;
-    (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
-    app_context.update <- None;
-    updates
+  let apply app effect =
+    let updates, handler = Updates.create () in
+    let f () =
+      Bonesai.Runtime.schedule_effect app effect;
+      (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
+      updates
+    in
+    with_handler f () handler
 
   let run app websocket =
     let ctx = app_context () in
-    let app = Bonesai.Runtime.compile (app ctx) in
+    let app = without_handler Bonesai.Runtime.compile (app ctx) in
     let%lwt () =
       (* initialization: update entire DOM recursively. Sets component ids and js event handlers *)
       let obs = Bonesai.Runtime.observe app in
@@ -300,7 +325,7 @@ module Dream = struct
                       in
                       let updates =
                         Dream.log "%s: activate" subid;
-                        apply ctx app effect
+                        apply app effect
                       in
                       let%lwt () = Updates.send updates websocket in
                       loop ()
