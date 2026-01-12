@@ -50,11 +50,12 @@ module Html = struct
   include Html
 
   let js_side_event_handler (ctx : html_context) id subscription =
+    (* TODO move WeakTable stuff outside render context into [handler'] *)
     let () = WeakTable.add ctx.global_subscriptions id subscription in
     let name =
       match subscription with OnClick _ -> "onclick" | OnInput _ -> "oninput"
     in
-    Printf.sprintf "liveview_%s('%s', event)" name (*WeakTable.string_of_id*) id
+    Printf.sprintf "liveview_%s('%s', event)" name id
 
   let a_onclick ctx (id, handler) =
     if ctx.pure then a_user_data "liveview" "onclick"
