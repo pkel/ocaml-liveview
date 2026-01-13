@@ -6,14 +6,13 @@ module Counter = struct
   let apply_action (_ : _ Bonesai.Apply_action_context.t) model action =
     match action with Incr -> model + 1 | Decr -> model - 1
 
-  let component ~start ctx graph =
-    (* TODO we're passing a lot of ctx graph arguments around, can we eliminate
-       some? Maybe merge ctx+graph? They seem to serve a similar purpose *)
+  let component ~start graph =
     let state, inject =
-      Bonesai.state_machine graph ~default_model:start ~apply_action
+      Bonesai.state_machine (to_bonesai graph) ~default_model:start
+        ~apply_action
     in
-    let incr = Liveview.handler inject Incr ctx graph
-    and decr = Liveview.handler inject Decr ctx graph
+    let incr = Liveview.handler inject Incr graph
+    and decr = Liveview.handler inject Decr graph
     and render state incr decr =
       let open Html in
       let button label_ action =
@@ -22,7 +21,7 @@ module Counter = struct
       [ button "-1" decr; txt (Int.to_string state); button "+1" incr ]
     in
     (* TODO can we do some let+ and+ in magic here to avoid all the arguments? *)
-    Component.(arg3 div) state incr decr render ctx graph
+    Component.(arg3 div) state incr decr render graph
 end
 
 module Input = struct
@@ -35,11 +34,12 @@ module Input = struct
   let apply_action (_ : _ Bonesai.Apply_action_context.t) _old = function
     | Update new_ -> new_
 
-  let component ~start ctx graph =
+  let component ~start graph =
     let state, inject =
-      Bonesai.state_machine graph ~default_model:start ~apply_action
+      Bonesai.state_machine (to_bonesai graph) ~default_model:start
+        ~apply_action
     in
-    let update = Liveview.handler' inject string update ctx graph
+    let update = Liveview.handler' inject string update graph
     and render state update =
       let open Html in
       [
@@ -50,16 +50,16 @@ module Input = struct
         txt state;
       ]
     in
-    Component.(arg2 div) state update render ctx graph
+    Component.(arg2 div) state update render graph
 end
 
-let main ~n1 ~n2 ~n3 ~s ctx graph =
+let main ~n1 ~n2 ~n3 ~s graph =
   let open Liveview in
   (* TODO demonstrate how to use state across components *)
-  let one = Counter.component ~start:n1 ctx graph
-  and two = Counter.component ~start:n2 ctx graph
-  and three = Counter.component ~start:n3 ctx graph
-  and four = Input.component ~start:s ctx graph
+  let one = Counter.component ~start:n1 graph
+  and two = Counter.component ~start:n2 graph
+  and three = Counter.component ~start:n3 graph
+  and four = Input.component ~start:s graph
   and render one two three four =
     let open Html in
     [
@@ -72,7 +72,7 @@ let main ~n1 ~n2 ~n3 ~s ctx graph =
       sub_component four;
     ]
   in
-  Component.(arg4 div) one two three four render ctx graph
+  Component.(arg4 div) one two three four render graph
 
 (* read arguments from Dream request *)
 

@@ -1,4 +1,9 @@
-type app_context
+type graph
+
+val to_bonesai : graph -> Bonesai.graph
+
+type 'a value = 'a Bonesai.t
+type 'a effect = 'a Bonesai.effect
 type 'a handler
 type 'a handled_type
 
@@ -6,19 +11,14 @@ val unit : unit handled_type
 val string : string handled_type
 
 val handler :
-  ('action -> unit Bonesai.effect) Bonesai.t ->
-  'action ->
-  app_context ->
-  Bonesai.graph ->
-  unit handler Bonesai.t
+  ('action -> unit effect) value -> 'action -> graph -> unit handler value
 
 val handler' :
-  ('action -> unit Bonesai.effect) Bonesai.t ->
+  ('action -> unit effect) value ->
   'arg handled_type ->
   ('arg -> 'action) ->
-  app_context ->
-  Bonesai.graph ->
-  'arg handler Bonesai.t
+  graph ->
+  'arg handler value
 
 type 'a component
 
@@ -32,14 +32,8 @@ module Html : sig
   val sub_component : 'a component -> 'a elt
 end
 
-type component_id
-
-val component_id : app_context -> Bonesai.graph -> component_id Bonesai.t
-
 module Component : sig
   (* wrappers around Html.{div,...} that create new liveview components *)
-
-  open Bonesai
   open Html_types
 
   type ('outer, 'inner) container
@@ -48,47 +42,40 @@ module Component : sig
 
   val arg1 :
     ('outer, 'inner) container ->
-    'a t ->
+    'a value ->
     ('a -> 'inner Html.elt list) ->
-    app_context ->
     graph ->
-    'outer component t
+    'outer component value
 
   val arg2 :
     ('outer, 'inner) container ->
-    'a t ->
-    'b t ->
+    'a value ->
+    'b value ->
     ('a -> 'b -> 'inner Html.elt list) ->
-    app_context ->
     graph ->
-    'outer component t
+    'outer component value
 
   val arg3 :
     ('outer, 'inner) container ->
-    'a t ->
-    'b t ->
-    'c t ->
+    'a value ->
+    'b value ->
+    'c value ->
     ('a -> 'b -> 'c -> 'inner Html.elt list) ->
-    app_context ->
     graph ->
-    'outer component t
+    'outer component value
 
   val arg4 :
     ('outer, 'inner) container ->
-    'a t ->
-    'b t ->
-    'c t ->
-    'd t ->
+    'a value ->
+    'b value ->
+    'c value ->
+    'd value ->
     ('a -> 'b -> 'c -> 'd -> 'inner Html.elt list) ->
-    app_context ->
     graph ->
-    'outer component t
+    'outer component value
 end
 
-type 'a app =
-  app_context ->
-  Bonesai.graph ->
-  ([< Html_types.flow5 ] as 'a) component Bonesai.t
+type 'a app = graph -> ([< Html_types.flow5 ] as 'a) component value
 
 module Dream : sig
   val prerender : 'a app -> 'a Html.elt

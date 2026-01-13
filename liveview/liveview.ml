@@ -1,17 +1,13 @@
 open Tyxml
 module WeakTable = Ephemeron.K1.Make (String)
 
-type component_id = string
-type handler_id = string
-type 'a handler0 = 'a -> unit Bonesai.effect
-type 'a handler = handler_id * 'a handler0
+type 'a effect = 'a Bonesai.effect
+type 'a value = 'a Bonesai.t
+type 'a handler0 = 'a -> unit effect
 
 type packed_handler =
   | Unit : unit handler0 -> packed_handler
   | String : string handler0 -> packed_handler
-
-type 'a renderer = shallow:bool -> pure:bool -> 'a Html.elt
-type packed_renderer = Renderer : 'a renderer -> packed_renderer
 
 type app_context = {
   handlers : packed_handler WeakTable.t;
@@ -19,32 +15,36 @@ type app_context = {
   mutable next_handler_id : int;
 }
 
+type graph = app_context * Bonesai.graph
+
+let to_bonesai (_, graph) = graph
+
+type 'a renderer = shallow:bool -> pure:bool -> 'a Html.elt
+type packed_renderer = Renderer : 'a renderer -> packed_renderer
 type render_mode = Pre | Full | Update
-type 'a component = { render : 'a renderer; hole : pure:bool -> 'a Html.elt }
 
 type _ Effect.t +=
   | Update : { id : string; r : packed_renderer } -> unit Effect.t
   | Get_render_mode : unit -> render_mode Effect.t
 
-let component_id (ctx : app_context) _graph =
-  (* graph argument is to enforce that this is not called at runtime *)
-  let id = Printf.sprintf "c%x" ctx.next_component_id in
-  ctx.next_component_id <- ctx.next_component_id + 1;
-  Bonesai.return id
+type 'a handler = {
+  id : string;
+  f : 'a handler0; [@warning "-unused-field"] (* exists for gc only, see below *)
+}
 
-let handler_id (ctx : app_context) _graph =
+type 'a handled_type = 'a handler0 -> packed_handler
+
+let handler_id ((ctx, _) : graph) =
   (* graph argument is to enforce that this is not called at runtime *)
   let id = Printf.sprintf "e%x" ctx.next_handler_id in
   ctx.next_handler_id <- ctx.next_handler_id + 1;
   Bonesai.return id
 
-type 'a handled_type = 'a handler0 -> packed_handler
-
-let handler' inject (pack : _ handled_type) to_action ctx graph =
+let handler' inject (pack : _ handled_type) to_action (ctx, graph) =
   let open Bonesai.Let_syntax in
-  let+ inject = inject and+ id = handler_id ctx graph in
-  let handler arg = inject (to_action arg) in
-  let () = WeakTable.add ctx.handlers id (pack handler) in
+  let+ inject = inject and+ id = handler_id (ctx, graph) in
+  let f arg = inject (to_action arg) in
+  let () = WeakTable.add ctx.handlers id (pack f) in
   (* My intention with the WeakTable was to garbage collect redundant handlers
      after they stop being relevant. Now with the static (at graph build time)
      handler (and ids), this seems to be less relevant. Maybe it becomes
@@ -56,34 +56,39 @@ let handler' inject (pack : _ handled_type) to_action ctx graph =
      Just the type of the handler is relevant, to ensure that server side
      handlers match client side handlers.
   *)
-  (id, handler)
+  { id; f }
 
 let unit handler = Unit handler
 let string handler = String handler
 let handler inject action = handler' inject unit (fun () -> action)
 
+type 'a component = { render : 'a renderer; hole : pure:bool -> 'a Html.elt }
+
 module Html = struct
   include Html
 
-  let js_event_handler attr name id =
+  let js_event_handler attr name h =
     match Effect.perform (Get_render_mode ()) with
     | Pre -> a_user_data "liveview" name
     | Full | Update ->
-        let js = Printf.sprintf "liveview_%s('%s', event)" name id in
+        let js = Printf.sprintf "liveview_%s('%s', event)" name h.id in
         attr js
 
-  let a_onclick (id, (_ : unit handler0)) =
-    js_event_handler a_onclick "onclick" id
+  let a_onclick (h : unit handler) = js_event_handler a_onclick "onclick" h
+  let a_oninput (h : string handler) = js_event_handler a_oninput "oninput" h
 
-  let a_oninput (id, (_ : string handler0)) =
-    js_event_handler a_oninput "oninput" id
-
-  let sub_component c =
+  let sub_component (c : _ component) =
     match Effect.perform (Get_render_mode ()) with
     | Update -> c.hole ~pure:false
     | Full -> c.render ~shallow:false ~pure:false
     | Pre -> c.render ~shallow:false ~pure:true
 end
+
+let component_id ((ctx, _) : graph) =
+  (* graph argument is to enforce that this is not called at runtime *)
+  let id = Printf.sprintf "c%x" ctx.next_component_id in
+  ctx.next_component_id <- ctx.next_component_id + 1;
+  Bonesai.return id
 
 module Component = struct
   open Bonesai.Let_syntax
@@ -121,50 +126,45 @@ module Component = struct
     Effect.perform (Update { id; r = Renderer render });
     { render; hole }
 
-  open Bonesai
-
-  let cutoff (c : 'a component t) : 'a component t =
+  let cutoff (c : 'a component value) : 'a component value =
     (* the current type of components does not have anything of use for
        parent components. So they should never fire an update. *)
-    cutoff ~equal:(fun _ _ -> true) c
+    Bonesai.cutoff ~equal:(fun _ _ -> true) c
 
-  let arg1 container a render ctx graph =
+  let arg1 container a render graph =
     let raw =
-      let+ a = a and+ id = component_id ctx graph in
+      let+ a = a and+ id = component_id graph in
       t container id (fun () -> render a)
     in
     cutoff raw
 
-  let arg2 container a b render ctx graph =
+  let arg2 container a b render graph =
     let raw =
-      let+ a = a and+ b = b and+ id = component_id ctx graph in
+      let+ a = a and+ b = b and+ id = component_id graph in
       t container id (fun () -> render a b)
     in
     cutoff raw
 
-  let arg3 container a b c render ctx graph =
+  let arg3 container a b c render graph =
     let raw =
-      let+ a = a and+ b = b and+ c = c and+ id = component_id ctx graph in
+      let+ a = a and+ b = b and+ c = c and+ id = component_id graph in
       t container id (fun () -> render a b c)
     in
     cutoff raw
 
-  let arg4 container a b c d render ctx graph =
+  let arg4 container a b c d render graph =
     let raw =
       let+ a = a
       and+ b = b
       and+ c = c
       and+ d = d
-      and+ id = component_id ctx graph in
+      and+ id = component_id graph in
       t container id (fun () -> render a b c d)
     in
     cutoff raw
 end
 
-type 'a app =
-  app_context ->
-  Bonesai.graph ->
-  ([< Html_types.flow5 ] as 'a) component Bonesai.t
+type 'a app = graph -> ([< Html_types.flow5 ] as 'a) component value
 
 module Dream = struct
   let app_context () =
@@ -205,8 +205,9 @@ module Dream = struct
 
   let prerender app =
     let ctx = app_context () in
+    let bonesai graph = app (ctx, graph) in
     let f () =
-      let app = Bonesai.Runtime.compile (app ctx) in
+      let app = Bonesai.Runtime.compile bonesai in
       let obs = Bonesai.Runtime.observe app in
       obs.render ~pure:true ~shallow:false
     in
@@ -307,7 +308,8 @@ module Dream = struct
 
   let run app websocket =
     let ctx = app_context () in
-    let app = without_update_handler Bonesai.Runtime.compile (app ctx) in
+    let bonesai graph = app (ctx, graph) in
+    let app = without_update_handler Bonesai.Runtime.compile bonesai in
     let%lwt () =
       (* initialization: update entire DOM recursively. Sets component ids and js event handlers *)
       let obs = Bonesai.Runtime.observe app in
