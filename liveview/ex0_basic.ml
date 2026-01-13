@@ -14,10 +14,10 @@ module Counter = struct
     in
     let incr = Liveview.handler inject Incr ctx graph
     and decr = Liveview.handler inject Decr ctx graph
-    and render state incr decr ctx =
+    and render state incr decr =
       let open Html in
       let button label_ action =
-        button ~a:[ a_onclick ctx action ] [ txt label_ ]
+        button ~a:[ a_onclick action ] [ txt label_ ]
       in
       [ button "-1" decr; txt (Int.to_string state); button "+1" incr ]
     in
@@ -40,14 +40,12 @@ module Input = struct
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
     let update = Liveview.handler' inject string update ctx graph
-    and render state update ctx =
+    and render state update =
       let open Html in
       [
         form
           [
-            input
-              ~a:[ a_input_type `Text; a_oninput ctx update; a_value state ]
-              ();
+            input ~a:[ a_input_type `Text; a_oninput update; a_value state ] ();
           ];
         txt state;
       ]
@@ -62,16 +60,16 @@ let main ~n1 ~n2 ~n3 ~s ctx graph =
   and two = Counter.component ~start:n2 ctx graph
   and three = Counter.component ~start:n3 ctx graph
   and four = Input.component ~start:s ctx graph
-  and render one two three four ctx =
+  and render one two three four =
     let open Html in
     [
-      sub_component ctx one;
+      sub_component one;
       hr ();
-      sub_component ctx two;
+      sub_component two;
       hr ();
-      sub_component ctx three;
+      sub_component three;
       hr ();
-      sub_component ctx four;
+      sub_component four;
     ]
   in
   Component.(arg4 div) one two three four render ctx graph

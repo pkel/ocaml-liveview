@@ -1,5 +1,4 @@
 type app_context
-type html_context
 type 'a handler
 type 'a handled_type
 
@@ -28,13 +27,9 @@ module Html : sig
 
   include module type of Tyxml.Html
 
-  val a_onclick :
-    html_context -> unit handler -> [> `OnClick | `User_data ] attrib
-
-  val a_oninput :
-    html_context -> string handler -> [> `OnInput | `User_data ] attrib
-
-  val sub_component : html_context -> 'a component -> 'a elt
+  val a_onclick : unit handler -> [> `OnClick | `User_data ] attrib
+  val a_oninput : string handler -> [> `OnInput | `User_data ] attrib
+  val sub_component : 'a component -> 'a elt
 end
 
 type component_id
@@ -54,7 +49,7 @@ module Component : sig
   val arg1 :
     ('outer, 'inner) container ->
     'a t ->
-    ('a -> html_context -> 'inner Html.elt list) ->
+    ('a -> 'inner Html.elt list) ->
     app_context ->
     graph ->
     'outer component t
@@ -63,7 +58,7 @@ module Component : sig
     ('outer, 'inner) container ->
     'a t ->
     'b t ->
-    ('a -> 'b -> html_context -> 'inner Html.elt list) ->
+    ('a -> 'b -> 'inner Html.elt list) ->
     app_context ->
     graph ->
     'outer component t
@@ -73,7 +68,7 @@ module Component : sig
     'a t ->
     'b t ->
     'c t ->
-    ('a -> 'b -> 'c -> html_context -> 'inner Html.elt list) ->
+    ('a -> 'b -> 'c -> 'inner Html.elt list) ->
     app_context ->
     graph ->
     'outer component t
@@ -84,7 +79,7 @@ module Component : sig
     'b t ->
     'c t ->
     'd t ->
-    ('a -> 'b -> 'c -> 'd -> html_context -> 'inner Html.elt list) ->
+    ('a -> 'b -> 'c -> 'd -> 'inner Html.elt list) ->
     app_context ->
     graph ->
     'outer component t

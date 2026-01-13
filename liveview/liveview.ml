@@ -13,17 +13,18 @@ type packed_handler =
 type 'a renderer = shallow:bool -> pure:bool -> 'a Html.elt
 type packed_renderer = Renderer : 'a renderer -> packed_renderer
 
-type _ Effect.t +=
-  | Update : { id : string; r : packed_renderer } -> unit Effect.t
-
 type app_context = {
   handlers : packed_handler WeakTable.t;
   mutable next_component_id : int;
   mutable next_handler_id : int;
 }
 
-type html_context = { shallow : bool; pure : bool }
+type render_mode = Pre | Full | Update
 type 'a component = { render : 'a renderer; hole : pure:bool -> 'a Html.elt }
+
+type _ Effect.t +=
+  | Update : { id : string; r : packed_renderer } -> unit Effect.t
+  | Get_render_mode : unit -> render_mode Effect.t
 
 let component_id (ctx : app_context) _graph =
   (* graph argument is to enforce that this is not called at runtime *)
@@ -64,21 +65,24 @@ let handler inject action = handler' inject unit (fun () -> action)
 module Html = struct
   include Html
 
-  let js_event_handler attr name id ctx =
-    if ctx.pure then a_user_data "liveview" name
-    else
-      let js = Printf.sprintf "liveview_%s('%s', event)" name id in
-      attr js
+  let js_event_handler attr name id =
+    match Effect.perform (Get_render_mode ()) with
+    | Pre -> a_user_data "liveview" name
+    | Full | Update ->
+        let js = Printf.sprintf "liveview_%s('%s', event)" name id in
+        attr js
 
-  let a_onclick ctx (id, (_ : unit handler0)) =
-    js_event_handler a_onclick "onclick" id ctx
+  let a_onclick (id, (_ : unit handler0)) =
+    js_event_handler a_onclick "onclick" id
 
-  let a_oninput ctx (id, (_ : string handler0)) =
-    js_event_handler a_oninput "oninput" id ctx
+  let a_oninput (id, (_ : string handler0)) =
+    js_event_handler a_oninput "oninput" id
 
-  let sub_component (ctx : html_context) c =
-    if ctx.shallow then c.hole ~pure:ctx.pure
-    else c.render ~pure:ctx.pure ~shallow:ctx.shallow
+  let sub_component c =
+    match Effect.perform (Get_render_mode ()) with
+    | Update -> c.hole ~pure:false
+    | Full -> c.render ~shallow:false ~pure:false
+    | Pre -> c.render ~shallow:false ~pure:true
 end
 
 module Component = struct
@@ -104,10 +108,7 @@ module Component = struct
   let t container id render =
     let render ~shallow ~pure =
       let () = Dream.log "%s: render ~shallow:%b ~pure:%b" id shallow pure in
-      let elts =
-        let ctx : html_context = { shallow; pure } in
-        render ctx
-      in
+      let elts = render () in
       container.full ~id ~pure elts
     and hole ~pure = container.hole ~id ~pure in
     (* TODO Simplify renderer and component types. I think
@@ -130,21 +131,21 @@ module Component = struct
   let arg1 container a render ctx graph =
     let raw =
       let+ a = a and+ id = component_id ctx graph in
-      t container id (render a)
+      t container id (fun () -> render a)
     in
     cutoff raw
 
   let arg2 container a b render ctx graph =
     let raw =
       let+ a = a and+ b = b and+ id = component_id ctx graph in
-      t container id (render a b)
+      t container id (fun () -> render a b)
     in
     cutoff raw
 
   let arg3 container a b c render ctx graph =
     let raw =
       let+ a = a and+ b = b and+ c = c and+ id = component_id ctx graph in
-      t container id (render a b c)
+      t container id (fun () -> render a b c)
     in
     cutoff raw
 
@@ -155,7 +156,7 @@ module Component = struct
       and+ c = c
       and+ d = d
       and+ id = component_id ctx graph in
-      t container id (render a b c d)
+      t container id (fun () -> render a b c d)
     in
     cutoff raw
 end
@@ -173,7 +174,20 @@ module Dream = struct
       next_handler_id = 0;
     }
 
-  let with_handler f x (handler : id:string -> packed_renderer -> unit) =
+  let with_render_mode (mode : render_mode) f x =
+    let open Effect in
+    let open Effect.Deep in
+    try_with f x
+      {
+        effc =
+          (fun (type a) (eff : a t) ->
+            match eff with
+            | Get_render_mode () ->
+                Some (fun (k : (a, _) continuation) -> continue k mode)
+            | _ -> None);
+      }
+
+  let with_update_handler (update : id:string -> packed_renderer -> unit) f x =
     let open Effect in
     let open Effect.Deep in
     try_with f x
@@ -183,11 +197,11 @@ module Dream = struct
             match eff with
             | Update { id; r } ->
                 Some
-                  (fun (k : (a, _) continuation) -> continue k (handler ~id r))
+                  (fun (k : (a, _) continuation) -> continue k (update ~id r))
             | _ -> None);
       }
 
-  let without_handler f x = with_handler f x (fun ~id:_ _ -> ())
+  let without_update_handler f = with_update_handler (fun ~id:_ _ -> ()) f
 
   let prerender app =
     let ctx = app_context () in
@@ -196,7 +210,7 @@ module Dream = struct
       let obs = Bonesai.Runtime.observe app in
       obs.render ~pure:true ~shallow:false
     in
-    without_handler f ()
+    without_update_handler (with_render_mode Pre f) ()
 
   module Message = struct
     open Ppx_yojson_conv_lib.Yojson_conv.Primitives
@@ -254,7 +268,10 @@ module Dream = struct
     let create () =
       let ht = Hashtbl.create 7 in
       let fn ~id (Renderer f) =
-        let dom = f ~shallow:true ~pure:false in
+        let dom =
+          let f () = f ~shallow:true ~pure:false in
+          with_render_mode Update f ()
+        in
         let html = Format.asprintf "%a" (Html.pp_elt ()) dom in
         match Hashtbl.find_opt ht id with
         | Some e ->
@@ -286,17 +303,24 @@ module Dream = struct
       (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
       updates
     in
-    with_handler f () handler
+    with_update_handler handler f ()
 
   let run app websocket =
     let ctx = app_context () in
-    let app = without_handler Bonesai.Runtime.compile (app ctx) in
+    let app = without_update_handler Bonesai.Runtime.compile (app ctx) in
     let%lwt () =
       (* initialization: update entire DOM recursively. Sets component ids and js event handlers *)
       let obs = Bonesai.Runtime.observe app in
+      (* TODO the internal API for rendering / building stuff could be simpler,
+         shallow pure seems redundant here. *)
+      let rendered =
+        with_render_mode Full
+          (fun () -> obs.render ~shallow:false ~pure:false)
+          ()
+      in
       let html =
         let open Html in
-        div ~a:[ a_id "liveview" ] [ obs.render ~shallow:false ~pure:false ]
+        div ~a:[ a_id "liveview" ] [ rendered ]
       in
       let str = Format.asprintf "%a" (Html.pp_elt ()) html in
       Message.send_updates websocket [ ("liveview", str) ]
