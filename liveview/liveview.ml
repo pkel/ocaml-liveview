@@ -121,6 +121,9 @@ module Component = struct
        - hole can be reconstructed from the container type and id
        - render is never called with ~shallow
        - wait ... sub_component does ... so I have to think more
+
+       ... I think the render type should be render_mode -> html this function
+       should handle the Get_render_mode effect locally.
     *)
     Effect.perform (Update { id; r = Renderer render });
     { render; hole }
