@@ -39,7 +39,7 @@ module Input = struct
     let state, inject =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let update = Liveview.handler' inject update ctx graph
+    let update = Liveview.handler' inject string update ctx graph
     and render state update ctx =
       let open Html in
       [

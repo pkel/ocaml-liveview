@@ -4,8 +4,12 @@ module WeakTable = Ephemeron.K1.Make (String)
 type component_id = string
 type handler_id = string
 type 'a handler0 = 'a -> unit Bonesai.effect
-type subscription = OnClick of unit handler0 | OnInput of string handler0
 type 'a handler = handler_id * 'a handler0
+
+type packed_handler =
+  | Unit : unit handler0 -> packed_handler
+  | String : string handler0 -> packed_handler
+
 type 'a renderer = shallow:bool -> pure:bool -> 'a Html.elt
 type packed_renderer = Renderer : 'a renderer -> packed_renderer
 
@@ -13,17 +17,12 @@ type _ Effect.t +=
   | Update : { id : string; r : packed_renderer } -> unit Effect.t
 
 type app_context = {
-  subscriptions : subscription WeakTable.t;
+  handlers : packed_handler WeakTable.t;
   mutable next_component_id : int;
   mutable next_handler_id : int;
 }
 
-type html_context = {
-  shallow : bool;
-  pure : bool;
-  global_subscriptions : subscription WeakTable.t;
-}
-
+type html_context = { shallow : bool; pure : bool }
 type 'a component = { render : 'a renderer; hole : pure:bool -> 'a Html.elt }
 
 let component_id (ctx : app_context) _graph =
@@ -38,36 +37,44 @@ let handler_id (ctx : app_context) _graph =
   ctx.next_handler_id <- ctx.next_handler_id + 1;
   Bonesai.return id
 
-let handler' inject to_action ctx graph =
+type 'a handled_type = 'a handler0 -> packed_handler
+
+let handler' inject (pack : _ handled_type) to_action ctx graph =
   let open Bonesai.Let_syntax in
   let+ inject = inject and+ id = handler_id ctx graph in
   let handler arg = inject (to_action arg) in
+  let () = WeakTable.add ctx.handlers id (pack handler) in
+  (* My intention with the WeakTable was to garbage collect redundant handlers
+     after they stop being relevant. Now with the static (at graph build time)
+     handler (and ids), this seems to be less relevant. Maybe it becomes
+     relevant again, when I start working on list with dynamic number of
+     elements or assoc/maps.
+
+     However, to avoid gc of the handler, we here return it as part of the
+     identified handler type, although it won't be used anywhere downstream.
+     Just the type of the handler is relevant, to ensure that server side
+     handlers match client side handlers.
+  *)
   (id, handler)
 
-let handler inject action = handler' inject (fun () -> action)
+let unit handler = Unit handler
+let string handler = String handler
+let handler inject action = handler' inject unit (fun () -> action)
 
 module Html = struct
   include Html
 
-  let js_side_event_handler (ctx : html_context) id subscription =
-    (* TODO move WeakTable stuff outside render context into [handler'] *)
-    let () = WeakTable.add ctx.global_subscriptions id subscription in
-    let name =
-      match subscription with OnClick _ -> "onclick" | OnInput _ -> "oninput"
-    in
-    Printf.sprintf "liveview_%s('%s', event)" name id
-
-  let a_onclick ctx (id, handler) =
-    if ctx.pure then a_user_data "liveview" "onclick"
+  let js_event_handler attr name id ctx =
+    if ctx.pure then a_user_data "liveview" name
     else
-      let sub = OnClick handler in
-      a_onclick (js_side_event_handler ctx id sub)
+      let js = Printf.sprintf "liveview_%s('%s', event)" name id in
+      attr js
 
-  let a_oninput (ctx : html_context) (id, handler) =
-    if ctx.pure then a_user_data "liveview" "oninput"
-    else
-      let sub = OnInput handler in
-      a_oninput (js_side_event_handler ctx id sub)
+  let a_onclick ctx (id, (_ : unit handler0)) =
+    js_event_handler a_onclick "onclick" id ctx
+
+  let a_oninput ctx (id, (_ : string handler0)) =
+    js_event_handler a_oninput "oninput" id ctx
 
   let sub_component (ctx : html_context) c =
     if ctx.shallow then c.hole ~pure:ctx.pure
@@ -94,13 +101,11 @@ module Component = struct
     in
     { full; hole }
 
-  let t container id render (ctx : app_context) =
+  let t container id render =
     let render ~shallow ~pure =
       let () = Dream.log "%s: render ~shallow:%b ~pure:%b" id shallow pure in
       let elts =
-        let ctx : html_context =
-          { global_subscriptions = ctx.subscriptions; shallow; pure }
-        in
+        let ctx : html_context = { shallow; pure } in
         render ctx
       in
       container.full ~id ~pure elts
@@ -125,21 +130,21 @@ module Component = struct
   let arg1 container a render ctx graph =
     let raw =
       let+ a = a and+ id = component_id ctx graph in
-      t container id (render a) ctx
+      t container id (render a)
     in
     cutoff raw
 
   let arg2 container a b render ctx graph =
     let raw =
       let+ a = a and+ b = b and+ id = component_id ctx graph in
-      t container id (render a b) ctx
+      t container id (render a b)
     in
     cutoff raw
 
   let arg3 container a b c render ctx graph =
     let raw =
       let+ a = a and+ b = b and+ c = c and+ id = component_id ctx graph in
-      t container id (render a b c) ctx
+      t container id (render a b c)
     in
     cutoff raw
 
@@ -150,7 +155,7 @@ module Component = struct
       and+ c = c
       and+ d = d
       and+ id = component_id ctx graph in
-      t container id (render a b c d) ctx
+      t container id (render a b c d)
     in
     cutoff raw
 end
@@ -163,7 +168,7 @@ type 'a app =
 module Dream = struct
   let app_context () =
     {
-      subscriptions = WeakTable.create 7;
+      handlers = WeakTable.create 7;
       next_component_id = 0;
       next_handler_id = 0;
     }
@@ -231,10 +236,10 @@ module Dream = struct
     | None -> Error `Not_found
     | Some x -> Ok x
 
-  let effect_of_event_and_sub event sub =
-    match (event, sub) with
-    | Message.OnClick, OnClick f -> Some (f ())
-    | OnInput s, OnInput f -> Some (f s)
+  let effect_of_event_and_handler event handler =
+    match (event, handler) with
+    | Message.OnClick, Unit f -> Some (f ())
+    | OnInput s, String f -> Some (f s)
     | _ -> None
 
   module Updates : sig
@@ -311,12 +316,12 @@ module Dream = struct
            * messages assume to be present. So some sort of user feedback is
            * required on the client side.
            *)
-          | Ok (Event (subid, event)) -> begin
-              begin match lookup subid ctx.subscriptions with
+          | Ok (Event (id, event)) -> begin
+              begin match lookup id ctx.handlers with
               | Ok sub -> begin
-                  match effect_of_event_and_sub event sub with
+                  match effect_of_event_and_handler event sub with
                   | None ->
-                      let msg = "event/subscription mismatch: " ^ msg in
+                      let msg = "event/handler mismatch: " ^ msg in
                       let%lwt () = Message.send_error websocket msg in
                       loop ()
                   | Some effect ->
@@ -325,18 +330,18 @@ module Dream = struct
                         (* add latency to test tolerance *)
                       in
                       let updates =
-                        Dream.log "%s: activate" subid;
+                        Dream.log "%s: apply" id;
                         apply app effect
                       in
                       let%lwt () = Updates.send updates websocket in
                       loop ()
                 end
               | Error `Invalid_id ->
-                  let msg = "error: invalid subscription id: " ^ subid in
+                  let msg = "error: invalid event id: " ^ id in
                   let%lwt () = Message.send_error websocket msg in
                   loop ()
               | Error `Not_found ->
-                  let msg = "error: subscription id not found: " ^ subid in
+                  let msg = "error: no event handler found for id: " ^ id in
                   let%lwt () = Message.send_error websocket msg in
                   loop ()
               end

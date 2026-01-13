@@ -1,6 +1,10 @@
 type app_context
 type html_context
 type 'a handler
+type 'a handled_type
+
+val unit : unit handled_type
+val string : string handled_type
 
 val handler :
   ('action -> unit Bonesai.effect) Bonesai.t ->
@@ -11,6 +15,7 @@ val handler :
 
 val handler' :
   ('action -> unit Bonesai.effect) Bonesai.t ->
+  'arg handled_type ->
   ('arg -> 'action) ->
   app_context ->
   Bonesai.graph ->
