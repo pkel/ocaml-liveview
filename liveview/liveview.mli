@@ -3,18 +3,17 @@ type graph
 val to_bonesai : graph -> Bonesai.graph
 
 type 'a value = 'a Bonesai.t
-type 'a effect = 'a Bonesai.effect
+type 'a inject = 'a -> unit Bonesai.effect
 type 'a handler
+
+val handler : 'action inject value -> 'action -> graph -> unit handler value
+
 type 'a handled_type
 
-val unit : unit handled_type
 val string : string handled_type
 
-val handler :
-  ('action -> unit effect) value -> 'action -> graph -> unit handler value
-
 val handler' :
-  ('action -> unit effect) value ->
+  'action inject value ->
   'arg handled_type ->
   ('arg -> 'action) ->
   graph ->
@@ -34,11 +33,7 @@ end
 
 module Component : sig
   (* wrappers around Html.{div,...} that create new liveview components *)
-  open Html_types
-
   type ('outer, 'inner) container
-
-  val div : ([> div ], [< div_content_fun ]) container
 
   val arg1 :
     ('outer, 'inner) container ->
@@ -73,14 +68,13 @@ module Component : sig
     ('a -> 'b -> 'c -> 'd -> 'inner Html.elt list) ->
     graph ->
     'outer component value
+
+  val div : ([> Html_types.div ], [< Html_types.div_content_fun ]) container
 end
 
 type 'a app = graph -> ([< Html_types.flow5 ] as 'a) component value
 
-module Dream : sig
-  val prerender : 'a app -> 'a Html.elt
-  val run : 'a app -> Dream.websocket -> unit Lwt.t
+val prerender : 'a app -> 'a Html.elt
 
-  val handler : (Dream.request -> 'a app) -> Dream.handler
-  (** Dream request handler for running the app over websockets *)
-end
+val dream : (Dream.request -> 'a app) -> Dream.handler
+(** Dream request handler for running the app over websockets. *)

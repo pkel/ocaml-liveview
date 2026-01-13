@@ -1,6 +1,6 @@
-module Counter = struct
-  open Liveview
+open Liveview
 
+module Counter = struct
   type action = Incr | Decr
 
   let apply_action (_ : _ Bonesai.Apply_action_context.t) model action =
@@ -25,8 +25,6 @@ module Counter = struct
 end
 
 module Input = struct
-  open Liveview
-
   type action = Update of string
 
   let update string = Update string
@@ -39,7 +37,7 @@ module Input = struct
       Bonesai.state_machine (to_bonesai graph) ~default_model:start
         ~apply_action
     in
-    let update = Liveview.handler' inject string update graph
+    let update = handler' inject string update graph
     and render state update =
       let open Html in
       [
@@ -54,7 +52,6 @@ module Input = struct
 end
 
 let main ~n1 ~n2 ~n3 ~s graph =
-  let open Liveview in
   (* TODO demonstrate how to use state across components *)
   let one = Counter.component ~start:n1 graph
   and two = Counter.component ~start:n2 graph
@@ -101,6 +98,4 @@ let main req =
   and s = parse_query_s req in
   main ~n1 ~n2 ~n3 ~s
 
-let () =
-  Dream.run @@ Dream.logger @@ Dream.memory_sessions
-  @@ Liveview.Dream.handler main
+let () = Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream main

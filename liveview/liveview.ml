@@ -1,16 +1,15 @@
 open Tyxml
 module WeakTable = Ephemeron.K1.Make (String)
 
-type 'a effect = 'a Bonesai.effect
+type 'a inject = 'a -> unit Bonesai.effect
 type 'a value = 'a Bonesai.t
-type 'a handler0 = 'a -> unit effect
 
-type packed_handler =
-  | Unit : unit handler0 -> packed_handler
-  | String : string handler0 -> packed_handler
+type packed_inject =
+  | Unit : unit inject -> packed_inject
+  | String : string inject -> packed_inject
 
 type app_context = {
-  handlers : packed_handler WeakTable.t;
+  handlers : packed_inject WeakTable.t;
   mutable next_component_id : int;
   mutable next_handler_id : int;
 }
@@ -29,10 +28,10 @@ type _ Effect.t +=
 
 type 'a handler = {
   id : string;
-  f : 'a handler0; [@warning "-unused-field"] (* exists for gc only, see below *)
+  f : 'a inject; [@warning "-unused-field"] (* exists for gc only, see below *)
 }
 
-type 'a handled_type = 'a handler0 -> packed_handler
+type 'a handled_type = 'a inject -> packed_inject
 
 let handler_id ((ctx, _) : graph) =
   (* graph argument is to enforce that this is not called at runtime *)
@@ -166,53 +165,51 @@ end
 
 type 'a app = graph -> ([< Html_types.flow5 ] as 'a) component value
 
-module Dream = struct
-  let app_context () =
+let app_context () =
+  { handlers = WeakTable.create 7; next_component_id = 0; next_handler_id = 0 }
+
+let with_render_mode (mode : render_mode) f x =
+  let open Effect in
+  let open Effect.Deep in
+  try_with f x
     {
-      handlers = WeakTable.create 7;
-      next_component_id = 0;
-      next_handler_id = 0;
+      effc =
+        (fun (type a) (eff : a t) ->
+          match eff with
+          | Get_render_mode () ->
+              Some (fun (k : (a, _) continuation) -> continue k mode)
+          | _ -> None);
     }
 
-  let with_render_mode (mode : render_mode) f x =
-    let open Effect in
-    let open Effect.Deep in
-    try_with f x
-      {
-        effc =
-          (fun (type a) (eff : a t) ->
-            match eff with
-            | Get_render_mode () ->
-                Some (fun (k : (a, _) continuation) -> continue k mode)
-            | _ -> None);
-      }
+let with_update_handler (update : id:string -> packed_renderer -> unit) f x =
+  let open Effect in
+  let open Effect.Deep in
+  try_with f x
+    {
+      effc =
+        (fun (type a) (eff : a t) ->
+          match eff with
+          | Update { id; r } ->
+              Some (fun (k : (a, _) continuation) -> continue k (update ~id r))
+          | _ -> None);
+    }
 
-  let with_update_handler (update : id:string -> packed_renderer -> unit) f x =
-    let open Effect in
-    let open Effect.Deep in
-    try_with f x
-      {
-        effc =
-          (fun (type a) (eff : a t) ->
-            match eff with
-            | Update { id; r } ->
-                Some
-                  (fun (k : (a, _) continuation) -> continue k (update ~id r))
-            | _ -> None);
-      }
+let without_update_handler f = with_update_handler (fun ~id:_ _ -> ()) f
 
-  let without_update_handler f = with_update_handler (fun ~id:_ _ -> ()) f
+let prerender app =
+  (* TODO this is currently building the entire bonesai graph just to evaluate
+     it once and then leave it to the gc. Can we avoid building the graph for
+     the prerender? *)
+  let ctx = app_context () in
+  let bonesai graph = app (ctx, graph) in
+  let f () =
+    let app = Bonesai.Runtime.compile bonesai in
+    let obs = Bonesai.Runtime.observe app in
+    obs.render ~pure:true ~shallow:false
+  in
+  without_update_handler (with_render_mode Pre f) ()
 
-  let prerender app =
-    let ctx = app_context () in
-    let bonesai graph = app (ctx, graph) in
-    let f () =
-      let app = Bonesai.Runtime.compile bonesai in
-      let obs = Bonesai.Runtime.observe app in
-      obs.render ~pure:true ~shallow:false
-    in
-    without_update_handler (with_render_mode Pre f) ()
-
+module Dream_websocket = struct
   module Message = struct
     open Ppx_yojson_conv_lib.Yojson_conv.Primitives
 
@@ -434,3 +431,5 @@ module Dream = struct
         get "/liveview.js" (get_crunch "text/javascript" "liveview.js");
       ]
 end
+
+let dream = Dream_websocket.handler
