@@ -18,13 +18,54 @@ type graph = app_context * Bonesai.graph
 
 let to_bonesai (_, graph) = graph
 
-type 'a renderer = shallow:bool -> pure:bool -> 'a Html.elt
+module Render : sig
+  (** algebraic effect magic to eliminate context argument in the Html API *)
+
+  type mode =
+    | Pre
+        (** Preview, components are rendered recursively, handlers and
+            identifies for interactivity are omitted *)
+    | Full  (** Components are rendered recursively, with interactivity *)
+    | Update  (** With interactivity, but sub-components are omitted *)
+
+  val with_mode : mode -> ('a -> 'b) -> 'a -> 'b
+
+  val get_mode : unit -> mode
+  (** this performs an effect and must be wrapped in [with_mode] *)
+
+  val mode_to_string : mode -> string
+end = struct
+  (* hide effect and effect handler *)
+
+  type mode = Pre | Full | Update
+  type _ Effect.t += Get_mode : unit -> mode Effect.t
+
+  let get_mode () = Effect.perform (Get_mode ())
+
+  let with_mode (mode : mode) f x =
+    let open Effect in
+    let open Effect.Deep in
+    try_with f x
+      {
+        effc =
+          (fun (type a) (eff : a t) ->
+            match eff with
+            | Get_mode () ->
+                Some (fun (k : (a, _) continuation) -> continue k mode)
+            | _ -> None);
+      }
+
+  let mode_to_string = function
+    | Full -> "Full"
+    | Update -> "Update"
+    | Pre -> "Pre"
+end
+
+type 'a renderer = Render.mode -> 'a Html.elt
 type packed_renderer = Renderer : 'a renderer -> packed_renderer
-type render_mode = Pre | Full | Update
 
 type _ Effect.t +=
   | Update : { id : string; r : packed_renderer } -> unit Effect.t
-  | Get_render_mode : unit -> render_mode Effect.t
 
 type 'a handler = {
   id : string;
@@ -61,13 +102,13 @@ let unit handler = Unit handler
 let string handler = String handler
 let handler inject action = handler' inject unit (fun () -> action)
 
-type 'a component = { render : 'a renderer; hole : pure:bool -> 'a Html.elt }
+type 'a component = { render : 'a renderer; hole : 'a Html.elt }
 
 module Html = struct
   include Html
 
   let js_event_handler attr name h =
-    match Effect.perform (Get_render_mode ()) with
+    match Render.get_mode () with
     | Pre -> a_user_data "liveview" name
     | Full | Update ->
         let js = Printf.sprintf "liveview_%s('%s', event)" name h.id in
@@ -77,10 +118,10 @@ module Html = struct
   let a_oninput (h : string handler) = js_event_handler a_oninput "oninput" h
 
   let sub_component (c : _ component) =
-    match Effect.perform (Get_render_mode ()) with
-    | Update -> c.hole ~pure:false
-    | Full -> c.render ~shallow:false ~pure:false
-    | Pre -> c.render ~shallow:false ~pure:true
+    match Render.get_mode () with
+    | Update -> c.hole
+    | Full -> c.render Full
+    | Pre -> c.render Pre
 end
 
 let component_id ((ctx, _) : graph) =
@@ -93,38 +134,24 @@ module Component = struct
   open Bonesai.Let_syntax
 
   type ('outer, 'inner) container = {
-    full : id:string -> pure:bool -> 'inner Html.elt list -> 'outer Html.elt;
-    hole : id:string -> pure:bool -> 'outer Html.elt;
+    full : id:string -> Render.mode -> 'inner Html.elt list -> 'outer Html.elt;
+    hole : id:string -> 'outer Html.elt;
   }
-  (* TODO pure hole does not make much sense; it's three modes not four *)
 
   let div =
     let open Html in
-    let id_attr ~pure id =
-      if pure then Html.a_user_data "liveview" "component" else Html.a_id id
-    in
-    let full ~id ~pure elts = div ~a:[ id_attr ~pure id ] elts
-    and hole ~id ~pure =
-      div ~a:[ id_attr ~pure id; a_user_data "morph-skip" "" ] []
-    in
+    let full ~id = function
+      | Render.Pre -> div ~a:[ a_user_data "liveview" "component" ]
+      | Full | Update -> div ~a:[ a_id id ]
+    and hole ~id = div ~a:[ a_id id; a_user_data "morph-skip" "" ] [] in
     { full; hole }
 
   let t container id render =
-    let render ~shallow ~pure =
-      let () = Dream.log "%s: render ~shallow:%b ~pure:%b" id shallow pure in
-      let elts = render () in
-      container.full ~id ~pure elts
-    and hole ~pure = container.hole ~id ~pure in
-    (* TODO Simplify renderer and component types. I think
-       - the renderer in the update is always called with ~pure:false ~shallow:true
-       - hole is never ~pure
-       - hole can be reconstructed from the container type and id
-       - render is never called with ~shallow
-       - wait ... sub_component does ... so I have to think more
-
-       ... I think the render type should be render_mode -> html this function
-       should handle the Get_render_mode effect locally.
-    *)
+    let render mode =
+      let () = Dream.log "%s: render %s" id (Render.mode_to_string mode) in
+      let elts = Render.with_mode mode render () in
+      container.full ~id mode elts
+    and hole = container.hole ~id in
     Effect.perform (Update { id; r = Renderer render });
     { render; hole }
 
@@ -171,19 +198,6 @@ type 'a app = graph -> ([< Html_types.flow5 ] as 'a) component value
 let app_context () =
   { handlers = WeakTable.create 7; next_component_id = 0; next_handler_id = 0 }
 
-let with_render_mode (mode : render_mode) f x =
-  let open Effect in
-  let open Effect.Deep in
-  try_with f x
-    {
-      effc =
-        (fun (type a) (eff : a t) ->
-          match eff with
-          | Get_render_mode () ->
-              Some (fun (k : (a, _) continuation) -> continue k mode)
-          | _ -> None);
-    }
-
 let with_update_handler (update : id:string -> packed_renderer -> unit) f x =
   let open Effect in
   let open Effect.Deep in
@@ -208,9 +222,9 @@ let prerender app =
   let f () =
     let app = Bonesai.Runtime.compile bonesai in
     let obs = Bonesai.Runtime.observe app in
-    obs.render ~pure:true ~shallow:false
+    obs.render Pre
   in
-  without_update_handler (with_render_mode Pre f) ()
+  without_update_handler f ()
 
 module Dream_websocket = struct
   module Message = struct
@@ -269,10 +283,7 @@ module Dream_websocket = struct
     let create () =
       let ht = Hashtbl.create 7 in
       let fn ~id (Renderer f) =
-        let dom =
-          let f () = f ~shallow:true ~pure:false in
-          with_render_mode Update f ()
-        in
+        let dom = f Update in
         let html = Format.asprintf "%a" (Html.pp_elt ()) dom in
         match Hashtbl.find_opt ht id with
         | Some e ->
@@ -313,16 +324,9 @@ module Dream_websocket = struct
     let%lwt () =
       (* initialization: update entire DOM recursively. Sets component ids and js event handlers *)
       let obs = Bonesai.Runtime.observe app in
-      (* TODO the internal API for rendering / building stuff could be simpler,
-         shallow pure seems redundant here. *)
-      let rendered =
-        with_render_mode Full
-          (fun () -> obs.render ~shallow:false ~pure:false)
-          ()
-      in
       let html =
         let open Html in
-        div ~a:[ a_id "liveview" ] [ rendered ]
+        div ~a:[ a_id "liveview" ] [ obs.render Full ]
       in
       let str = Format.asprintf "%a" (Html.pp_elt ()) html in
       Message.send_updates websocket [ ("liveview", str) ]
@@ -331,6 +335,7 @@ module Dream_websocket = struct
       let () =
         Gc.full_major ()
         (* make sure that the WeakTable stuff works *)
+        (* TODO remove before release *)
       in
       match%lwt Dream.receive websocket with
       | None -> Lwt.return ()
@@ -354,6 +359,7 @@ module Dream_websocket = struct
                       let%lwt () =
                         Lwt_unix.sleep 0.5
                         (* add latency to test tolerance *)
+                        (* TODO remove before release *)
                       in
                       let updates =
                         Dream.log "%s: apply" id;
