@@ -1,5 +1,4 @@
 open Tyxml
-module WeakTable = Ephemeron.K1.Make (String)
 
 type 'a inject = 'a -> unit Bonesai.effect
 type 'a value = 'a Bonesai.t
@@ -8,15 +7,83 @@ type packed_inject =
   | Unit : unit inject -> packed_inject
   | String : string inject -> packed_inject
 
+(* pack functions, exposed publicly as 'a handled_type *)
+let unit x = Unit x
+let string x = String x
+
+type 'a handled_type = 'a inject -> packed_inject
+
+module WeakTable = Ephemeron.K1.Make (String)
+
+(* We have two things that live both on the client and on the server:
+   components and event handlers. We identify them using strings.
+   Janestreet Bonsai has sophisticated tooling to generate stable identifiers,
+   so called paths, for all values. I'm lazy and just use serial number
+   converted to hex strings. *)
 type app_context = {
-  handlers : packed_inject WeakTable.t;
+  handlers : packed_inject WeakTable.t; (* handler id -> handler *)
   mutable next_component_id : int;
   mutable next_handler_id : int;
 }
+(* My intention with the WeakTable was to garbage collect redundant handlers
+   after they stop being relevant. This was introduced while handlers where
+   still allocated at render time. Now, with the static (at graph build time)
+   handlers (and ids), this seems to be less relevant. But it may become
+   relevant again, when I start working on dynamic lists and assoc/maps. *)
 
+let app_context () =
+  { handlers = WeakTable.create 7; next_component_id = 0; next_handler_id = 0 }
+
+(* Bonesai graph and app_context are separate concepts. It happened that all
+   external functions that require the app_context also require the graph. So I
+   merge them to simplify the API. *)
 type graph = app_context * Bonesai.graph
 
 let to_bonesai (_, graph) = graph
+
+(* allocate a new effect handler id *)
+let handler_id ((ctx, _) : graph) =
+  (* graph argument is to enforce that this is not called at runtime *)
+  let id = Printf.sprintf "e%x" ctx.next_handler_id in
+  ctx.next_handler_id <- ctx.next_handler_id + 1;
+  Bonesai.return id
+
+(* allocate a new component id *)
+let component_id ((ctx, _) : graph) =
+  (* graph argument is to enforce that this is not called at runtime *)
+  let id = Printf.sprintf "c%x" ctx.next_component_id in
+  ctx.next_component_id <- ctx.next_component_id + 1;
+  Bonesai.return id
+
+module Handler : sig
+  type 'a t
+
+  val id : 'a t -> string
+  val create : id:string -> 'a handled_type -> 'a inject -> app_context -> 'a t
+end = struct
+  (* this module enforces that handlers are correctly registered in the
+     app_context *)
+
+  type 'a t = { id : string; inject : 'a inject [@warning "-unused-field"] }
+  (* The inject is not actually used, it's there to avoid garbage collection,
+     handlers are accessed through the ctx.handlers weak hash table. *)
+
+  let id t = t.id
+
+  let create ~id pack inject ctx =
+    let () = WeakTable.add ctx.handlers id (pack inject) in
+    { id; inject }
+end
+
+type 'a handler = 'a Handler.t
+
+let handler' inject (pack : _ handled_type) to_action (ctx, graph) =
+  let open Bonesai.Let_syntax in
+  let+ inject = inject and+ id = handler_id (ctx, graph) in
+  let f arg = inject (to_action arg) in
+  Handler.create ~id pack f ctx
+
+let handler inject action = handler' inject unit (fun () -> action)
 
 module Render : sig
   (** algebraic effect magic to eliminate context argument in the Html API *)
@@ -63,45 +130,6 @@ end
 
 type 'a renderer = Render.mode -> 'a Html.elt
 type packed_renderer = Renderer : 'a renderer -> packed_renderer
-
-type _ Effect.t +=
-  | Update : { id : string; r : packed_renderer } -> unit Effect.t
-
-type 'a handler = {
-  id : string;
-  f : 'a inject; [@warning "-unused-field"] (* exists for gc only, see below *)
-}
-
-type 'a handled_type = 'a inject -> packed_inject
-
-let handler_id ((ctx, _) : graph) =
-  (* graph argument is to enforce that this is not called at runtime *)
-  let id = Printf.sprintf "e%x" ctx.next_handler_id in
-  ctx.next_handler_id <- ctx.next_handler_id + 1;
-  Bonesai.return id
-
-let handler' inject (pack : _ handled_type) to_action (ctx, graph) =
-  let open Bonesai.Let_syntax in
-  let+ inject = inject and+ id = handler_id (ctx, graph) in
-  let f arg = inject (to_action arg) in
-  let () = WeakTable.add ctx.handlers id (pack f) in
-  (* My intention with the WeakTable was to garbage collect redundant handlers
-     after they stop being relevant. Now with the static (at graph build time)
-     handler (and ids), this seems to be less relevant. Maybe it becomes
-     relevant again, when I start working on list with dynamic number of
-     elements or assoc/maps.
-
-     However, to avoid gc of the handler, we here return it as part of the
-     identified handler type, although it won't be used anywhere downstream.
-     Just the type of the handler is relevant, to ensure that server side
-     handlers match client side handlers.
-  *)
-  { id; f }
-
-let unit handler = Unit handler
-let string handler = String handler
-let handler inject action = handler' inject unit (fun () -> action)
-
 type 'a component = { render : 'a renderer; hole : 'a Html.elt }
 
 module Html = struct
@@ -111,7 +139,9 @@ module Html = struct
     match Render.get_mode () with
     | Pre -> a_user_data "liveview" name
     | Full | Update ->
-        let js = Printf.sprintf "liveview_%s('%s', event)" name h.id in
+        let js =
+          Printf.sprintf "liveview_%s('%s', event)" name (Handler.id h)
+        in
         attr js
 
   let a_onclick (h : unit handler) = js_event_handler a_onclick "onclick" h
@@ -124,11 +154,11 @@ module Html = struct
     | Pre -> c.render Pre
 end
 
-let component_id ((ctx, _) : graph) =
-  (* graph argument is to enforce that this is not called at runtime *)
-  let id = Printf.sprintf "c%x" ctx.next_component_id in
-  ctx.next_component_id <- ctx.next_component_id + 1;
-  Bonesai.return id
+type _ Effect.t +=
+  | Update : { id : string; r : packed_renderer } -> unit Effect.t
+
+(* TODO: add Update module here that puts some guardrails around the Update
+   effect, like Render does around the mode effect. *)
 
 module Component = struct
   open Bonesai.Let_syntax
@@ -157,7 +187,12 @@ module Component = struct
 
   let cutoff (c : 'a component value) : 'a component value =
     (* the current type of components does not have anything of use for
-       parent components. So they should never fire an update. *)
+       parent components. So they should never fire an update.
+
+       TODO this is not true actually: subcomponents access the render in Full
+       mode. But this only called once, during initialization of the app,
+       before any updates happen. This could (and should) be refactored such
+       that Full mode can actually only be called before any updates happen. *)
     Bonesai.cutoff ~equal:(fun _ _ -> true) c
 
   let arg1 container a render graph =
@@ -194,9 +229,6 @@ module Component = struct
 end
 
 type 'a app = graph -> ([< Html_types.flow5 ] as 'a) component value
-
-let app_context () =
-  { handlers = WeakTable.create 7; next_component_id = 0; next_handler_id = 0 }
 
 let with_update_handler (update : id:string -> packed_renderer -> unit) f x =
   let open Effect in
@@ -341,12 +373,6 @@ module Dream_websocket = struct
       | None -> Lwt.return ()
       | Some msg -> (
           match Message.from_client msg with
-          (* Note, we here use ../weak_ptr and rely on the GC to
-           * purge stuff that's not relevant anymore. High latency might still
-           * induce situations where the GC removes a handler that some incoming
-           * messages assume to be present. So some sort of user feedback is
-           * required on the client side.
-           *)
           | Ok (Event (id, event)) -> begin
               begin match lookup id ctx.handlers with
               | Ok sub -> begin
@@ -373,6 +399,27 @@ module Dream_websocket = struct
                   let%lwt () = Message.send_error websocket msg in
                   loop ()
               | Error `Not_found ->
+                  (* Does high latency induce situations where the GC removes a
+                   * handler that some incoming messages assume to be present?
+                   *
+                   * I think this cannot happen currently. Handlers are
+                   * allocated statically at graph build time. Their ids do not
+                   * change.
+                   *
+                   * This might change when implementing dynamic
+                   * lists/assoc/maps. In that case, components might be
+                   * deallocated while the client is still sending events.
+                   * E.g. user deletes list element, then edits an input in
+                   * that element, before receiving the update that actually
+                   * deletes the element. But in that case it is sound to
+                   * ignore the delayed event (this match case) on the server.
+                   *
+                   * Now, if this can happen contrary to my expectation, we'll
+                   * need to add some user feedback about unstable connection
+                   * on the client.
+                   *
+                   * TODO upgrade to bug / server side error?
+                   *)
                   let msg = "error: no event handler found for id: " ^ id in
                   let%lwt () = Message.send_error websocket msg in
                   loop ()

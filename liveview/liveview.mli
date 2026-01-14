@@ -6,6 +6,8 @@ type 'a value = 'a Bonesai.t
 type 'a inject = 'a -> unit Bonesai.effect
 type 'a handler
 
+(* TODO add some mechanism to handle dynamic lists/assocs/maps *)
+
 val handler : 'action inject value -> 'action -> graph -> unit handler value
 
 type 'a handled_type

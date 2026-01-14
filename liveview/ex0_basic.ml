@@ -20,7 +20,11 @@ module Counter = struct
       in
       [ button "-1" decr; txt (Int.to_string state); button "+1" incr ]
     in
-    (* TODO can we do some let+ and+ in magic here to avoid all the arguments? *)
+    (* TODO can we do some let+ and+ in magic here to avoid all the arguments?
+       One thing that would work for certain is PPX. And in a separate step,
+       such a PPX could mark all locations, where a value (not a handler) is
+       injected into the HTML. This would allow to compile HTML templates and
+       update the values individually like it happens in liveview. *)
     Component.(arg3 div) state incr decr render graph
 end
 
