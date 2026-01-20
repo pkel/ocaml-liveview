@@ -8,11 +8,10 @@ module Counter = struct
 
   let component ~start graph =
     let state, inject =
-      Bonesai.state_machine (to_bonesai graph) ~default_model:start
-        ~apply_action
+      Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let incr = Liveview.handler inject Incr graph
-    and decr = Liveview.handler inject Decr graph
+    let incr = handler inject Incr graph
+    and decr = handler inject Decr graph
     and render state incr decr =
       let open Html in
       let button label_ action =
@@ -38,8 +37,7 @@ module Input = struct
 
   let component ~start graph =
     let state, inject =
-      Bonesai.state_machine (to_bonesai graph) ~default_model:start
-        ~apply_action
+      Bonesai.state_machine graph ~default_model:start ~apply_action
     in
     let update = handler' inject string update graph
     and render state update =

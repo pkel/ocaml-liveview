@@ -1,7 +1,6 @@
 open Tyxml
 
-type 'a inject = 'a -> unit Bonesai.effect
-type 'a value = 'a Bonesai.t
+type 'a inject = 'a -> unit Bonesai.Expert.Effect.t
 
 type packed_inject =
   | Unit : unit inject -> packed_inject
@@ -34,23 +33,32 @@ type app_context = {
 let app_context () =
   { handlers = WeakTable.create 7; next_component_id = 0; next_handler_id = 0 }
 
-(* Bonesai graph and app_context are separate concepts. It happened that all
-   external functions that require the app_context also require the graph. So I
-   merge them to simplify the API. *)
-type graph = app_context * Bonesai.graph
+module Extra = struct
+  type t = app_context
 
-let to_bonesai (_, graph) = graph
+  let create = app_context
+end
+
+module Bonesai = Bonesai.Expert.Make (Bonesai.Expert.Effect) (Extra)
+
+type graph = Bonesai.graph
+
+let extra g : app_context = Bonesai.extra g
+
+type 'a value = 'a Bonesai.t
 
 (* allocate a new effect handler id *)
-let handler_id ((ctx, _) : graph) =
+let handler_id (g : graph) =
   (* graph argument is to enforce that this is not called at runtime *)
+  let ctx = extra g in
   let id = Printf.sprintf "e%x" ctx.next_handler_id in
   ctx.next_handler_id <- ctx.next_handler_id + 1;
   Bonesai.return id
 
 (* allocate a new component id *)
-let component_id ((ctx, _) : graph) =
+let component_id (g : graph) =
   (* graph argument is to enforce that this is not called at runtime *)
+  let ctx = extra g in
   let id = Printf.sprintf "c%x" ctx.next_component_id in
   ctx.next_component_id <- ctx.next_component_id + 1;
   Bonesai.return id
@@ -59,7 +67,7 @@ module Handler : sig
   type 'a t
 
   val id : 'a t -> string
-  val create : id:string -> 'a handled_type -> 'a inject -> app_context -> 'a t
+  val create : id:string -> 'a handled_type -> 'a inject -> graph -> 'a t
 end = struct
   (* this module enforces that handlers are correctly registered in the
      app_context *)
@@ -70,18 +78,19 @@ end = struct
 
   let id t = t.id
 
-  let create ~id pack inject ctx =
+  let create ~id pack inject graph =
+    let ctx = extra graph in
     let () = WeakTable.add ctx.handlers id (pack inject) in
     { id; inject }
 end
 
 type 'a handler = 'a Handler.t
 
-let handler' inject (pack : _ handled_type) to_action (ctx, graph) =
+let handler' inject (pack : _ handled_type) to_action graph =
   let open Bonesai.Let_syntax in
-  let+ inject = inject and+ id = handler_id (ctx, graph) in
+  let+ inject = inject and+ id = handler_id graph in
   let f arg = inject (to_action arg) in
-  Handler.create ~id pack f ctx
+  Handler.create ~id pack f graph
 
 let handler inject action = handler' inject unit (fun () -> action)
 
@@ -249,10 +258,8 @@ let prerender app =
   (* TODO this is currently building the entire bonesai graph just to evaluate
      it once and then leave it to the gc. Can we avoid building the graph for
      the prerender? *)
-  let ctx = app_context () in
-  let bonesai graph = app (ctx, graph) in
   let f () =
-    let app = Bonesai.Runtime.compile bonesai in
+    let app, _ctx = Bonesai.Runtime.compile app in
     let obs = Bonesai.Runtime.observe app in
     obs.render Pre
   in
@@ -350,9 +357,7 @@ module Dream_websocket = struct
     with_update_handler handler f ()
 
   let run app websocket =
-    let ctx = app_context () in
-    let bonesai graph = app (ctx, graph) in
-    let app = without_update_handler Bonesai.Runtime.compile bonesai in
+    let app, ctx = without_update_handler Bonesai.Runtime.compile app in
     let%lwt () =
       (* initialization: update entire DOM recursively. Sets component ids and js event handlers *)
       let obs = Bonesai.Runtime.observe app in

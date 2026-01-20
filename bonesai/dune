@@ -1,6 +1,6 @@
 (library
  (name bonesai)
- (modules bonesai value)
+ (modules bonesai intf impl value)
  (libraries react)
  (public_name liveview.bonesai))
 
