@@ -159,4 +159,57 @@ module Make (Effect : Effect) (Extra : Extra) :
           setter new_model)
     in
     (signal s, constant apply_effect)
+
+  module IntMap = Map.Make (Int)
+  module StringMap = Map.Make (String)
+
+  let assoc_int f m graph =
+    (* m is a [Map.t value]
+     * f is a ['a -> 'b] function
+     * We want to build a graph of incremental computations (or reactive signals)
+     * that applies f to all elements of [m] incrementally.
+     *
+     * We have to handle three scenarios:
+     * - key is removed in input map: remove key from output map & destruct a part of the graph
+     * - key is added to the input map: add key to the output map & construct graph
+     * - value for given key is updated: fire incremental update to the respective output values
+     *
+     * So, to have this, we'll have to categorize all involved keys:
+     * - `New keys are in new_map but not in old_map.
+     * - `Static keys are in new_map and old_map, the value is equal.
+     * - `Updated keys are in new_map and old_map, the value has changed.
+     * - `Stale keys are in old_map but not in new_map.
+     *
+     * Then take action:
+     * - `New key: allocate reactive signal, initialize with [f x], add to output map
+     * - `Static key: ignore
+     * - `Updated key: update reactive signal with [f x]
+     * - `Stale key: deallocate reactive signal, remove from output map
+     *
+     * I'll do this naively first. Diff the entire set of input keys on each
+     * update & construct a new output map on each update.
+     *
+     * With some thought it should be possible to implement an incremental
+     * version of the map data structure. One that modifies the compute graph
+     * whenever elements are added/set/removed. Or would that require monadic
+     * bind?
+     *
+     * However, I think at the core we need an imperative data structure. The
+     * graph construction/destruction is imperative anyway. So should I start
+     * with an imperative wrapper, that takes single `New/`Update/`Remove
+     * operations and modifies the compute graph in return?
+     *
+     * See https://ocaml.org/p/cumulus/0.0.1, a signal-like type that supports
+     * differential updates of the underlying value.
+     *
+     * Similarly: https://ocaml.org/p/reactiveData/0.3.1
+     *
+     * Okay, these two libraries solve the imperative part. ReactiveData seems to
+     * be maintained and finds some application in the OCaml ecosystem. Let's go
+     * with that for now.
+     *)
+    ignore (f, m, graph);
+    assert false (* TODO assoc_int *)
+
+  let assoc_string = assert false (* TODO assoc_string *)
 end

@@ -143,4 +143,25 @@ module type Bonesai = sig
 
       [?equal] does the same thing that it does for [Bonesai.state], go read
       those docs for more. *)
+
+  module IntMap : Map.S with type key = int
+  module StringMap : Map.S with type key = string
+
+  val assoc_int :
+    ('k t -> 'v t -> graph -> 'r t) -> 'v IntMap.t t -> graph -> 'r IntMap.t t
+  (** [assoc_*] are used to build a new instance of a Bonesai component for each
+      element of a map.
+
+      This function is very similar to [Map.S.mapi] and for good reason! It is
+      doing the same thing (taking a map and a function and returning a new map
+      with the function applied to every key-value pair), but this function does
+      it with the Bonesai values, which means that the computation is done
+      incrementally and also maintains a state machine for every key-value pair.
+  *)
+
+  val assoc_string :
+    ('k t -> 'v t -> graph -> 'r t) ->
+    'v StringMap.t t ->
+    graph ->
+    'r StringMap.t t
 end
