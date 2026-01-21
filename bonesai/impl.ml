@@ -160,56 +160,59 @@ module Make (Effect : Effect) (Extra : Extra) :
     in
     (signal s, constant apply_effect)
 
-  module IntMap = Map.Make (Int)
-  module StringMap = Map.Make (String)
+  let state_machine_with_input ?(equal = ( == )) ~default_model ~apply_action
+      input _graph =
+    let s, setter = React.S.create ~eq:equal default_model in
+    let rec ctx =
+      Apply_action_context.
+        { inject = apply_effect; schedule_event = Effect.execute }
+    and apply_effect action =
+      Effect.create (fun () ->
+          let old_model = React.S.value s in
+          let input =
+            React.S.value
+              (Value.eval input (* TODO avoid redundant evaluation *))
+          in
+          let new_model = apply_action ctx input old_model action in
+          setter new_model)
+    in
+    (signal s, constant apply_effect)
 
-  let assoc_int f m graph =
-    (* m is a [Map.t value]
-     * f is a ['a -> 'b] function
-     * We want to build a graph of incremental computations (or reactive signals)
-     * that applies f to all elements of [m] incrementally.
-     *
-     * We have to handle three scenarios:
-     * - key is removed in input map: remove key from output map & destruct a part of the graph
-     * - key is added to the input map: add key to the output map & construct graph
-     * - value for given key is updated: fire incremental update to the respective output values
-     *
-     * So, to have this, we'll have to categorize all involved keys:
-     * - `New keys are in new_map but not in old_map.
-     * - `Static keys are in new_map and old_map, the value is equal.
-     * - `Updated keys are in new_map and old_map, the value has changed.
-     * - `Stale keys are in old_map but not in new_map.
-     *
-     * Then take action:
-     * - `New key: allocate reactive signal, initialize with [f x], add to output map
-     * - `Static key: ignore
-     * - `Updated key: update reactive signal with [f x]
-     * - `Stale key: deallocate reactive signal, remove from output map
-     *
-     * I'll do this naively first. Diff the entire set of input keys on each
-     * update & construct a new output map on each update.
-     *
-     * With some thought it should be possible to implement an incremental
-     * version of the map data structure. One that modifies the compute graph
-     * whenever elements are added/set/removed. Or would that require monadic
-     * bind?
-     *
-     * However, I think at the core we need an imperative data structure. The
-     * graph construction/destruction is imperative anyway. So should I start
-     * with an imperative wrapper, that takes single `New/`Update/`Remove
-     * operations and modifies the compute graph in return?
-     *
-     * See https://ocaml.org/p/cumulus/0.0.1, a signal-like type that supports
-     * differential updates of the underlying value.
-     *
-     * Similarly: https://ocaml.org/p/reactiveData/0.3.1
-     *
-     * Okay, these two libraries solve the imperative part. ReactiveData seems to
-     * be maintained and finds some application in the OCaml ecosystem. Let's go
-     * with that for now.
-     *)
-    ignore (f, m, graph);
-    assert false (* TODO assoc_int *)
+  module BData (RData : ReactiveData.S) = struct
+    type 'a patch = 'a RData.patch
+    type 'a raw = 'a RData.data
+    type 'a action = Patch of 'a patch | Set of 'a raw
+    type 'a data = 'a RData.t
 
-  let assoc_string = assert false (* TODO assoc_string *)
+    let create ~start (_ : graph) =
+      let data, handle = RData.create start in
+      let inject = function
+        | Patch p -> Effect.create (fun () -> RData.patch handle p)
+        | Set d -> Effect.create (fun () -> RData.set handle d)
+      in
+      (data, constant inject)
+
+    let value data =
+      (* TODO this would've an ~eq argument which we do not expose *)
+      signal (RData.signal data)
+  end
+
+  module BList = struct
+    module RList = ReactiveData.RList
+
+    type 'a p = 'a RList.p =
+      | I of int * 'a
+      | R of int
+      | U of int * 'a
+      | X of int * int
+
+    include BData (RList)
+  end
+
+  module BMap (M : Map.S) = struct
+    module RMap = ReactiveData.RMap (M)
+    include BData (RMap)
+
+    let filter = RMap.filter
+  end
 end

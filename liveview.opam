@@ -5,6 +5,8 @@ depends: [
   "ocaml" {= "5.1.1"}
   "dune" {>= "3.14" & build}
   "bonsai" {= "v0.17.0"}
+  "react"
+  "reactiveData"
   "dream" {= "1.0.0~alpha8"}
   "tyxml" {= "4.6.0"}
   "lwt_ppx" {= "5.9.1"}

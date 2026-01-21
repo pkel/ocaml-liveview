@@ -1,8 +1,4 @@
-module type Bonesai = sig
-  (** Adapted from Janestreet's Bonsai library, late 2025 / early 2026.
-      https://github.com/janestreet/bonsai/blob/8e6c34dceff46c92c3db58d7801da805417139ad/src/cont.mli
-  *)
-
+module type Types = sig
   type 'a t
   (** The primary type in the Bonesai library, you can think of a value with
       type ['a t] as "an 'a that changes over time". The two main ways that you
@@ -17,6 +13,66 @@ module type Bonesai = sig
       2. by mapping on existing [Bonesai.t]'s to derive a new computed
       [Bonesai.t] *)
 
+  (* TODO rename t -> value ? *)
+
+  type 'a effect
+
+  type graph
+  (** [Bonesai.graph] is a required parameter to all Bonesai functions which do
+      more than pure computation. The value is always [local_] because Bonesai
+      applications have two phases:
+
+      1. The graph building phase. This is the phase where you have access to a
+      [local_ Bonesai.graph]
+
+      2. Runtime. The application has started and modifying the graph is no
+      longer permitted. *)
+end
+
+module type Data = sig
+  (** shared signature for incremental data structures; adapted from
+      ReactiveData.S *)
+
+  (* ReactiveData.S has a note saying "most function in this interface
+     are not safe to call during a React update step". I do not know what a
+     React update step is. TODO learn about React update steps, make sure I
+     don't break things. *)
+
+  include Types
+
+  type 'a data
+  (** Incremental version of the data container *)
+
+  type 'a raw
+  (** Non-incremental version of the data container *)
+
+  type 'a patch
+  (** Patch format *)
+
+  (** Action format *)
+  type 'a action =
+    | Patch of 'a patch
+        (** [Patch p] triggers the application of p on the current contents *)
+    | Set of 'a raw
+        (** [Set d] replaces the entire container non-incrementally *)
+
+  val create : start:'a raw -> graph -> 'a data * ('a action -> unit effect) t
+  (** Instantiate an incremental container with given start value *)
+
+  val value : 'a data -> 'a raw t
+  (** Bonesai value representing the current contents of the container *)
+
+  (* TODO bring in remaining stuff from ReactiveData.S, incl. fold & map *)
+end
+
+module type Bonesai = sig
+  (** Adapted from Janestreet's Bonsai library, late 2025 / early 2026.
+      https://github.com/janestreet/bonsai/blob/8e6c34dceff46c92c3db58d7801da805417139ad/src/cont.mli
+  *)
+
+  include Types
+
+  type 'a t
   type 'a effect
 
   type graph
@@ -144,24 +200,68 @@ module type Bonesai = sig
       [?equal] does the same thing that it does for [Bonesai.state], go read
       those docs for more. *)
 
-  module IntMap : Map.S with type key = int
-  module StringMap : Map.S with type key = string
-
-  val assoc_int :
-    ('k t -> 'v t -> graph -> 'r t) -> 'v IntMap.t t -> graph -> 'r IntMap.t t
-  (** [assoc_*] are used to build a new instance of a Bonesai component for each
-      element of a map.
-
-      This function is very similar to [Map.S.mapi] and for good reason! It is
-      doing the same thing (taking a map and a function and returning a new map
-      with the function applied to every key-value pair), but this function does
-      it with the Bonesai values, which means that the computation is done
-      incrementally and also maintains a state machine for every key-value pair.
-  *)
-
-  val assoc_string :
-    ('k t -> 'v t -> graph -> 'r t) ->
-    'v StringMap.t t ->
+  val state_machine_with_input :
+    ?equal:('model -> 'model -> bool) ->
+    default_model:'model ->
+    apply_action:
+      (('action, unit) Apply_action_context.t ->
+      'input ->
+      'model ->
+      'action ->
+      'model) ->
+    'input t ->
     graph ->
-    'r StringMap.t t
+    'model t * ('action -> unit effect) t
+  (** [Bonesai.state_machine_with_input] is identical to [Bonesai.state_machine]
+      except that you can pass an arbitrary ['a Bonesai.t] dependency and have
+      access to the current value within the [apply_action] function. *)
+
+  module BList : sig
+    (** Incremental list data structure; wrapper around ReactiveData.RList *)
+
+    (** Patch operation on lists. All operations are of linear complexity *)
+    type 'a p =
+      | I of int * 'a  (** [I (i, v)] adds [v] at position [i] *)
+      | R of int  (** [R i] removes the [i]-th elements *)
+      | U of int * 'a  (** [U (i, v)] substitutes the [i]-th element with [v] *)
+      | X of int * int  (** [X (i, j)] swaps the [i]-th and [j]-th elements *)
+
+    type 'a patch = 'a p list
+    (** A patch is a list of operations. The operations are applied in the order
+        they appear in the list.
+
+        The indices correspond to list contents after the operations that appear
+        earlier in the list have been applied, not to the contents before the
+        whole patch operation.
+
+        A patch comprised of I, R, and U steps with increasing indices can be
+        applied in O(m+n), where m is the patch length and n is the current size
+        of the list. Arbitrary patches are slower, requiring O(m*n). *)
+
+    include
+      Data
+        with type 'a patch := 'a p list
+         and type 'a raw := 'a list
+         and type graph := graph
+         and type 'a effect := 'a effect
+         and type 'a t := 'a t
+
+    (* TODO much stuff of RList is missing *)
+  end
+
+  module BMap (M : Map.S) : sig
+    (** Incremental Map data structure; wrapper around ReactiveData.Rmap *)
+
+    type 'a patch = [ `Add of M.key * 'a | `Del of M.key ] list
+
+    include
+      Data
+        with type 'a patch := 'a patch
+         and type 'a raw := 'a M.t
+         and type graph := graph
+         and type 'a effect := 'a effect
+         and type 'a t := 'a t
+
+    val filter : (M.key -> 'a -> bool) -> 'a data -> 'a data
+  end
 end

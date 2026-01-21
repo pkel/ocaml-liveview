@@ -11,6 +11,8 @@
     (ocaml (= 5.1.1))
     (dune :build)
     (bonsai (= v0.17.0)) ; for draft_with_jsbonsai
+    react
+    reactiveData
     (dream (= "1.0.0~alpha8"))
     (tyxml (= 4.6.0))
     (lwt_ppx (= 5.9.1))
