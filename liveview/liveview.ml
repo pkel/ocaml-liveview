@@ -7,12 +7,6 @@ type packed_to_task =
   | Unit : unit to_task -> packed_to_task
   | String : string to_task -> packed_to_task
 
-(* pack functions, exposed publicly as 'a handled_type *)
-let unit x = Unit x
-let string x = String x
-
-type 'a handled_type = 'a to_task -> packed_to_task
-
 module WeakTable = Ephemeron.K1.Make (String)
 
 (* We have two things that live both on the client and on the server:
@@ -48,8 +42,8 @@ let extra g : app_context = Bonesai.extra g
 
 type 'a value = 'a Bonesai.value
 
-(* allocate a new task handler id *)
-let handler_id (g : graph) =
+(* allocate a new event handler id *)
+let event_handler_id (g : graph) =
   (* graph argument is to enforce that this is not called at runtime *)
   let ctx = extra g in
   let id = Printf.sprintf "e%x" ctx.next_handler_id in
@@ -66,13 +60,15 @@ let component_id (g : graph) =
 
 module Handler : sig
   type 'a t
+  type 'a pack = 'a to_task -> packed_to_task
 
   val id : 'a t -> string
-  val create : id:string -> 'a handled_type -> 'a to_task -> graph -> 'a t
+  val create : id:string -> 'a pack -> 'a to_task -> graph -> 'a t
 end = struct
   (* this module enforces that handlers are correctly registered in the
      app_context *)
 
+  type 'a pack = 'a to_task -> packed_to_task
   type 'a t = { id : string; to_task : 'a to_task [@warning "-unused-field"] }
   (* The to_task is not actually used, it's there to avoid garbage collection,
      handlers are accessed through the ctx.handlers weak hash table. *)
@@ -85,15 +81,21 @@ end = struct
     { id; to_task }
 end
 
-type 'a handler = 'a Handler.t
+type 'a event_handler = 'a Handler.t
 
-let handler' to_task (pack : _ handled_type) to_action graph =
+let event_handler' to_task pack to_action graph =
   let open Bonesai.Let_syntax in
-  let+ to_task = to_task and+ id = handler_id graph in
+  let+ to_task = to_task and+ id = event_handler_id graph in
   let f arg = to_task (to_action arg) in
   Handler.create ~id pack f graph
 
-let handler to_task action = handler' to_task unit (fun () -> action)
+let pack_unit x = Unit x
+let pack_string x = String x
+
+let event_handler to_task action =
+  event_handler' to_task pack_unit (fun () -> action)
+
+let string_event_handler to_task = event_handler' to_task pack_string
 
 module Render : sig
   (** algebraic effect magic to eliminate context argument in the Html API *)
@@ -154,8 +156,11 @@ module Html = struct
         in
         attr js
 
-  let a_onclick (h : unit handler) = js_event_handler a_onclick "onclick" h
-  let a_oninput (h : string handler) = js_event_handler a_oninput "oninput" h
+  let a_onclick (h : unit event_handler) =
+    js_event_handler a_onclick "onclick" h
+
+  let a_oninput (h : string event_handler) =
+    js_event_handler a_oninput "oninput" h
 
   let sub_component (c : _ component) =
     match Render.get_mode () with

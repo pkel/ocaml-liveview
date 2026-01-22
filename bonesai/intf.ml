@@ -23,8 +23,7 @@ module type Types = sig
       than pure computation. The value is always [local_] because Bonesai
       applications have two phases:
 
-      (* TODO don't have _local, that's an OxCaml thing. Remove any references
-      to it *)
+      TODO don't have _local, that's an OxCaml thing. Remove any references.
 
       1. The graph building phase. This is the phase where you have access to a
       [local_ graph]
@@ -35,7 +34,7 @@ end
 
 module type Data = sig
   (** shared signature for incremental data structures; adapted from
-      ReactiveData.S *)
+      {!ReactiveData.S} *)
 
   (* ReactiveData.S has a note saying "most functions in this interface
      are not safe to call during a React update step". I do not know what a
@@ -244,7 +243,7 @@ module type Bonesai = sig
      return type per action using GADTs. *)
 
   module BList : sig
-    (** Incremental list data structure; wrapper around ReactiveData.RList *)
+    (** Incremental list data structure; wrapper around {!ReactiveData.RList} *)
 
     (** Patch operation on lists. All operations are of linear complexity *)
     type 'a p =
@@ -277,7 +276,7 @@ module type Bonesai = sig
   end
 
   module BMap (M : Map.S) : sig
-    (** Incremental Map data structure; wrapper around ReactiveData.Rmap *)
+    (** Incremental Map data structure; wrapper around {!ReactiveData.RMap} *)
 
     type 'a patch = [ `Add of M.key * 'a | `Del of M.key ] list
 

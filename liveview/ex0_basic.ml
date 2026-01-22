@@ -10,8 +10,8 @@ module Counter = struct
     let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let incr = handler to_task Incr graph
-    and decr = handler to_task Decr graph
+    let incr = event_handler to_task Incr graph
+    and decr = event_handler to_task Decr graph
     and render state incr decr =
       let open Html in
       let button label_ action =
@@ -39,7 +39,7 @@ module Input = struct
     let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let update = handler' to_task string update graph
+    let update = string_event_handler to_task update graph
     and render state update =
       let open Html in
       [
