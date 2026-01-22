@@ -1,16 +1,17 @@
 open Tyxml
+module Task = Bonesai.Expert.Task
 
-type 'a inject = 'a -> unit Bonesai.Expert.Effect.t
+type 'a to_task = 'a -> unit Task.t
 
-type packed_inject =
-  | Unit : unit inject -> packed_inject
-  | String : string inject -> packed_inject
+type packed_to_task =
+  | Unit : unit to_task -> packed_to_task
+  | String : string to_task -> packed_to_task
 
 (* pack functions, exposed publicly as 'a handled_type *)
 let unit x = Unit x
 let string x = String x
 
-type 'a handled_type = 'a inject -> packed_inject
+type 'a handled_type = 'a to_task -> packed_to_task
 
 module WeakTable = Ephemeron.K1.Make (String)
 
@@ -20,7 +21,7 @@ module WeakTable = Ephemeron.K1.Make (String)
    so called paths, for all values. I'm lazy and just use serial number
    converted to hex strings. *)
 type app_context = {
-  handlers : packed_inject WeakTable.t; (* handler id -> handler *)
+  handlers : packed_to_task WeakTable.t; (* handler id -> handler *)
   mutable next_component_id : int;
   mutable next_handler_id : int;
 }
@@ -39,7 +40,7 @@ module Extra = struct
   let create = app_context
 end
 
-module Bonesai = Bonesai.Expert.Make (Bonesai.Expert.Effect) (Extra)
+module Bonesai = Bonesai.Expert.Make (Task) (Extra)
 
 type graph = Bonesai.graph
 
@@ -47,7 +48,7 @@ let extra g : app_context = Bonesai.extra g
 
 type 'a value = 'a Bonesai.value
 
-(* allocate a new effect handler id *)
+(* allocate a new task handler id *)
 let handler_id (g : graph) =
   (* graph argument is to enforce that this is not called at runtime *)
   let ctx = extra g in
@@ -67,32 +68,32 @@ module Handler : sig
   type 'a t
 
   val id : 'a t -> string
-  val create : id:string -> 'a handled_type -> 'a inject -> graph -> 'a t
+  val create : id:string -> 'a handled_type -> 'a to_task -> graph -> 'a t
 end = struct
   (* this module enforces that handlers are correctly registered in the
      app_context *)
 
-  type 'a t = { id : string; inject : 'a inject [@warning "-unused-field"] }
-  (* The inject is not actually used, it's there to avoid garbage collection,
+  type 'a t = { id : string; to_task : 'a to_task [@warning "-unused-field"] }
+  (* The to_task is not actually used, it's there to avoid garbage collection,
      handlers are accessed through the ctx.handlers weak hash table. *)
 
   let id t = t.id
 
-  let create ~id pack inject graph =
+  let create ~id pack to_task graph =
     let ctx = extra graph in
-    let () = WeakTable.add ctx.handlers id (pack inject) in
-    { id; inject }
+    let () = WeakTable.add ctx.handlers id (pack to_task) in
+    { id; to_task }
 end
 
 type 'a handler = 'a Handler.t
 
-let handler' inject (pack : _ handled_type) to_action graph =
+let handler' to_task (pack : _ handled_type) to_action graph =
   let open Bonesai.Let_syntax in
-  let+ inject = inject and+ id = handler_id graph in
-  let f arg = inject (to_action arg) in
+  let+ to_task = to_task and+ id = handler_id graph in
+  let f arg = to_task (to_action arg) in
   Handler.create ~id pack f graph
 
-let handler inject action = handler' inject unit (fun () -> action)
+let handler to_task action = handler' to_task unit (fun () -> action)
 
 module Render : sig
   (** algebraic effect magic to eliminate context argument in the Html API *)
@@ -304,7 +305,7 @@ module Dream_websocket = struct
     | None -> Error `Not_found
     | Some x -> Ok x
 
-  let effect_of_event_and_handler event handler =
+  let task_of_event_and_handler event handler =
     match (event, handler) with
     | Message.OnClick, Unit f -> Some (f ())
     | OnInput s, String f -> Some (f s)
@@ -347,10 +348,10 @@ module Dream_websocket = struct
         (Hashtbl.to_seq t |> Lwt_stream.of_seq)
   end
 
-  let apply app effect_ =
+  let run_task app task =
     let updates, handler = Updates.create () in
     let f () =
-      Bonesai.Runtime.schedule_effect app effect_;
+      Bonesai.Runtime.schedule app task;
       (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
       updates
     in
@@ -381,12 +382,12 @@ module Dream_websocket = struct
           | Ok (Event (id, event)) -> begin
               begin match lookup id ctx.handlers with
               | Ok sub -> begin
-                  match effect_of_event_and_handler event sub with
+                  match task_of_event_and_handler event sub with
                   | None ->
                       let msg = "event/handler mismatch: " ^ msg in
                       let%lwt () = Message.send_error websocket msg in
                       loop ()
-                  | Some effect_ ->
+                  | Some task ->
                       let%lwt () =
                         Lwt_unix.sleep 0.5
                         (* add latency to test tolerance *)
@@ -394,7 +395,7 @@ module Dream_websocket = struct
                       in
                       let updates =
                         Dream.log "%s: apply" id;
-                        apply app effect_
+                        run_task app task
                       in
                       let%lwt () = Updates.send updates websocket in
                       loop ()

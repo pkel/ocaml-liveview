@@ -2,19 +2,24 @@ module Bonesai : Bonesai.T
 
 type graph = Bonesai.graph
 type 'a value = 'a Bonesai.value
-type 'a inject = 'a -> unit Bonesai.effect_
+type 'a to_task = 'a -> unit Bonesai.task
 type 'a handler
 
 (* TODO add some mechanism to handle dynamic lists/assocs/maps *)
 
-val handler : 'action inject value -> 'action -> graph -> unit handler value
+val handler : 'action to_task value -> 'action -> graph -> unit handler value
+
+(* TODO terminology. What do we handle? I think it's events; triggered on the
+   client, sent over the websocket, converted to a task and scheduled on the
+   server. So 'a handled_type could become 'a event? And 'a handler -> 'event
+   handler. *)
 
 type 'a handled_type
 
 val string : string handled_type
 
 val handler' :
-  'action inject value ->
+  'action to_task value ->
   'arg handled_type ->
   ('arg -> 'action) ->
   graph ->

@@ -1,5 +1,5 @@
 include struct
-  include Impl.Make (Impl.Effect) (Impl.NoExtra)
+  include Impl.Make (Impl.Task) (Impl.NoExtra)
 
   module Runtime = struct
     include Runtime

@@ -7,11 +7,11 @@ module Counter = struct
     match action with Incr -> model + 1 | Decr -> model - 1
 
   let component ~start graph =
-    let state, inject =
+    let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let incr = handler inject Incr graph
-    and decr = handler inject Decr graph
+    let incr = handler to_task Incr graph
+    and decr = handler to_task Decr graph
     and render state incr decr =
       let open Html in
       let button label_ action =
@@ -36,10 +36,10 @@ module Input = struct
     | Update new_ -> new_
 
   let component ~start graph =
-    let state, inject =
+    let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let update = handler' inject string update graph
+    let update = handler' to_task string update graph
     and render state update =
       let open Html in
       [

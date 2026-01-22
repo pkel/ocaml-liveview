@@ -1,7 +1,7 @@
-module type Effect = sig
-  (** Effects are opaque boxes of future computations. Consumers of the Bonesai
-      API never create or execute effects manually. Experts can instantiate
-      Bonesai with their own effect type. *)
+module type Task = sig
+  (** Task are opaque boxes of future computations. Consumers of the Bonesai API
+      never create or execute tasks manually. Experts can instantiate Bonesai
+      with their own task type. *)
 
   type 'a t
 
@@ -9,7 +9,7 @@ module type Effect = sig
   val execute : 'a t -> 'a
 end
 
-module Effect : Effect = struct
+module Task : Task = struct
   type 'a t = unit -> 'a
 
   let create f = f
@@ -37,7 +37,7 @@ module type WithExtra = sig
     type 'a app
 
     val compile : (graph -> 'a value) -> 'a app * extra
-    val schedule_effect : 'a app -> unit effect_ -> unit
+    val schedule : 'a app -> unit task -> unit
     val observe : 'a app -> 'a
   end
 end
@@ -48,9 +48,9 @@ module NoExtra = struct
   let create () = ()
 end
 
-module Make (Effect : Effect) (Extra : Extra) :
-  WithExtra with type extra = Extra.t and type 'a effect_ = 'a Effect.t = struct
-  type 'a effect_ = 'a Effect.t
+module Make (Task : Task) (Extra : Extra) :
+  WithExtra with type extra = Extra.t and type 'a task = 'a Task.t = struct
+  type 'a task = 'a Task.t
   type extra = Extra.t
   type graph = Extra.t (* think: unit plus some opaque value *)
 
@@ -88,16 +88,18 @@ module Make (Effect : Effect) (Extra : Extra) :
       (signal, graph (* graph = extra *))
 
     let observe = React.S.value
-    let schedule_effect _app = Effect.execute
+    let schedule _app = Task.execute
   end
+
+  (* TODO eliminate these two helpers, they harm readability *)
 
   let signal s = s
   let constant x = return x
 
   let state ?(equal = ( == )) start _graph =
     let s, setter = React.S.create ~eq:equal start in
-    let set_effect new_model = Effect.create (fun () -> setter new_model) in
-    (signal s, constant set_effect)
+    let set_task new_model = Task.create (fun () -> setter new_model) in
+    (signal s, constant set_task)
 
   let state_opt ?(equal = ( == )) ?default_model _graph =
     let equal a b =
@@ -107,111 +109,107 @@ module Make (Effect : Effect) (Extra : Extra) :
 
   let state' ?(equal = ( == )) start _graph =
     let s, setter = React.S.create ~eq:equal start in
-    let set_effect update =
-      Effect.create (fun () ->
+    let set_task update =
+      Task.create (fun () ->
           let old_model = React.S.value s in
           setter (update old_model))
     in
-    (signal s, constant set_effect)
+    (signal s, constant set_task)
 
   let toggle ~default_model _graph =
     let s, setter = React.S.create ~eq:( == ) default_model in
-    let toggle_effect =
-      Effect.create (fun () ->
+    let toggle_task =
+      Task.create (fun () ->
           let old_model = React.S.value s in
           setter (not old_model))
     in
-    (signal s, constant toggle_effect)
+    (signal s, constant toggle_task)
 
   module Toggle = struct
     type t = {
       state : bool value;
-      set_state : (bool -> unit effect_) value;
-      toggle : unit effect_ value;
+      set_state : (bool -> unit task) value;
+      toggle : unit task value;
     }
   end
 
   let toggle' ~default_model _graph =
     let s, setter = React.S.create ~eq:( == ) default_model in
-    let set_effect new_model = Effect.create (fun () -> setter new_model) in
-    let toggle_effect =
-      Effect.create (fun () ->
+    let set_task new_model = Task.create (fun () -> setter new_model) in
+    let toggle_task =
+      Task.create (fun () ->
           let old_model = React.S.value s in
           setter (not old_model))
     in
     Toggle.
       {
         state = signal s;
-        set_state = constant set_effect;
-        toggle = constant toggle_effect;
+        set_state = constant set_task;
+        toggle = constant toggle_task;
       }
 
   module Apply_action_context = struct
     type ('action, 'response) t = {
-      inject : 'action -> 'response effect_;
-      schedule_event : unit effect_ -> unit;
+      to_task : 'action -> 'response task;
+      schedule : unit task -> unit;
     }
 
-    let inject t = t.inject
-    let schedule_event t = t.schedule_event
+    let to_task t = t.to_task
+    let schedule t = t.schedule
   end
 
   let state_machine ?(equal = ( == )) ~default_model ~apply_action _graph =
+    let open Apply_action_context in
     let s, setter = React.S.create ~eq:equal default_model in
-    let rec ctx =
-      Apply_action_context.
-        { inject = apply_effect; schedule_event = Effect.execute }
-    and apply_effect action =
-      Effect.create (fun () ->
+    let rec ctx = { to_task; schedule = Task.execute }
+    and to_task action =
+      Task.create (fun () ->
           let old_model = React.S.value s in
           let new_model = apply_action ctx old_model action in
           setter new_model)
     in
-    (signal s, constant apply_effect)
+    (signal s, constant to_task)
 
   let actor ?(equal = ( == )) ~default_model ~recv _graph =
+    let open Apply_action_context in
     let s, setter = React.S.create ~eq:equal default_model in
-    let rec ctx =
-      Apply_action_context.
-        { inject = apply_effect; schedule_event = Effect.execute }
-    and apply_effect action =
-      Effect.create (fun () ->
+    let rec ctx = { to_task; schedule = Task.execute }
+    and to_task action =
+      Task.create (fun () ->
           let old_model = React.S.value s in
           let new_model, return = recv ctx old_model action in
           let () = setter new_model in
           return)
     in
-    (signal s, constant apply_effect)
+    (signal s, constant to_task)
 
   let state_machine_with_input ?(equal = ( == )) ~default_model ~apply_action
       input _graph =
+    let open Apply_action_context in
     let s, setter = React.S.create ~eq:equal default_model in
-    let rec ctx =
-      Apply_action_context.
-        { inject = apply_effect; schedule_event = Effect.execute }
-    and apply_effect action =
-      Effect.create (fun () ->
+    let rec ctx = { to_task; schedule = Task.execute }
+    and to_task action =
+      Task.create (fun () ->
           let old_model = React.S.value s in
           let input = React.S.value input in
           let new_model = apply_action ctx input old_model action in
           setter new_model)
     in
-    (signal s, constant apply_effect)
+    (signal s, constant to_task)
 
   let actor_with_input ?(equal = ( == )) ~default_model ~recv input _graph =
+    let open Apply_action_context in
     let s, setter = React.S.create ~eq:equal default_model in
-    let rec ctx =
-      Apply_action_context.
-        { inject = apply_effect; schedule_event = Effect.execute }
-    and apply_effect action =
-      Effect.create (fun () ->
+    let rec ctx = { to_task; schedule = Task.execute }
+    and to_task action =
+      Task.create (fun () ->
           let old_model = React.S.value s in
           let input = React.S.value input in
           let new_model, return = recv ctx input old_model action in
           let () = setter new_model in
           return)
     in
-    (signal s, constant apply_effect)
+    (signal s, constant to_task)
 
   module BData (RData : ReactiveData.S) = struct
     type 'a patch = 'a RData.patch
@@ -221,11 +219,11 @@ module Make (Effect : Effect) (Extra : Extra) :
 
     let create ~start (_ : graph) =
       let data, handle = RData.create start in
-      let inject = function
-        | Patch p -> Effect.create (fun () -> RData.patch handle p)
-        | Set d -> Effect.create (fun () -> RData.set handle d)
+      let to_task = function
+        | Patch p -> Task.create (fun () -> RData.patch handle p)
+        | Set d -> Task.create (fun () -> RData.set handle d)
       in
-      (data, constant inject)
+      (data, constant to_task)
 
     let value data =
       (* TODO this would've an ~eq argument which we do not expose *)

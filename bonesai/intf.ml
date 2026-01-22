@@ -10,11 +10,13 @@ module type Types = sig
 
       2. by mapping on existing [value]'s to derive a new computed [value] *)
 
-  type 'a effect_
-
-  (* TODO effect is a really bad name, as OCaml has its own effects now and
-     they are something else. [effect] is a keyword, even. Call it delayed
-     instead? *)
+  type 'a task
+  (** An ['a task] represents a delayed computation that returns an ['a]. Such
+      tasks might be scheduled arbitrarily often (including zero times) in the
+      future. They might trigger side-effects and not idempotent. There is no
+      memoization. It might be helpful to think of ['a task = unit -> 'a] but we
+      intentionally hide the representation to avoid programmers creating tasks
+      manually. *)
 
   type graph
   (** [graph] is a required parameter to all Bonesai functions which do more
@@ -35,7 +37,7 @@ module type Data = sig
   (** shared signature for incremental data structures; adapted from
       ReactiveData.S *)
 
-  (* ReactiveData.S has a note saying "most function in this interface
+  (* ReactiveData.S has a note saying "most functions in this interface
      are not safe to call during a React update step". I do not know what a
      React update step is. TODO learn about React update steps, make sure I
      don't break things. *)
@@ -58,8 +60,7 @@ module type Data = sig
     | Set of 'a raw
         (** [Set d] replaces the entire container non-incrementally *)
 
-  val create :
-    start:'a raw -> graph -> 'a data * ('a action -> unit effect_) value
+  val create : start:'a raw -> graph -> 'a data * ('a action -> unit task) value
   (** Instantiate an incremental container with given start value *)
 
   val value : 'a data -> 'a raw value
@@ -104,7 +105,7 @@ module type Bonesai = sig
     ?equal:('model -> 'model -> bool) ->
     'model ->
     graph ->
-    'model value * ('model -> unit effect_) value
+    'model value * ('model -> unit task) value
   (** [state] allocates a stateful value. It returns both the [value] containing
       the current state, as well as a [value] containing a function for
       overwriting the state.
@@ -123,7 +124,7 @@ module type Bonesai = sig
     ?equal:('model -> 'model -> bool) ->
     ?default_model:'model ->
     graph ->
-    'model option value * ('model option -> unit effect_) value
+    'model option value * ('model option -> unit task) value
   (** [state_opt] is just like [state] except that the model is optional. The
       model starts out as [None] unless you provide a value to the
       [default_model] optional parameter. *)
@@ -132,27 +133,27 @@ module type Bonesai = sig
     ?equal:('model -> 'model -> bool) ->
     'model ->
     graph ->
-    'model value * (('model -> 'model) -> unit effect_) value
+    'model value * (('model -> 'model) -> unit task) value
   (** Similar to [state], but the `set` function takes a function that
       calculates the new state from the previous state. *)
 
-  val toggle : default_model:bool -> graph -> bool value * unit effect_ value
+  val toggle : default_model:bool -> graph -> bool value * unit task value
   (** [toggle] is a small helper function for building a [bool] state that
-      toggles back and forth between [true] and [false] whenever the
-      [unit effect_] is scheduled. *)
+      toggles back and forth between [true] and [false] whenever the [unit task]
+      is scheduled. *)
 
   module Toggle : sig
     type t = {
       state : bool value;
-      set_state : (bool -> unit effect_) value;
-      toggle : unit effect_ value;
+      set_state : (bool -> unit task) value;
+      toggle : unit task value;
     }
     (** For the more advanced toggle function [toggle'] we return the state, the
         toggling function, and a function to set the state directly. *)
   end
 
   val toggle' : default_model:bool -> graph -> Toggle.t
-  (** Just like [toggle] except that you also have an [effect_] for directly
+  (** Just like [toggle] except that you also have an [task] for directly
       setting the state in addition to toggling it back and forth. *)
 
   module Apply_action_context : sig
@@ -163,15 +164,15 @@ module type Bonesai = sig
         1. Access the application time source directly. This is most likely
         useful to read the current time or sleep for some time span (TODO)
 
-        2. "inject" a value corresponding to the state-machine's action type
-        into an effect that can be scheduled.
+        2. Turn the state-machine's action type into a task that can be
+        scheduled.
 
-        3. Directly schedule effects. *)
+        3. Directly schedule tasks for execution. *)
 
     type ('action, 'response) t
 
-    val inject : ('action, 'response) t -> 'action -> 'response effect_
-    val schedule_event : _ t -> unit effect_ -> unit
+    val to_task : ('action, 'response) t -> 'action -> 'response task
+    val schedule : _ t -> unit task -> unit
 
     (* TODO *)
     (* val time_source : _ t -> Time_source.t *)
@@ -183,12 +184,11 @@ module type Bonesai = sig
     apply_action:
       (('action, unit) Apply_action_context.t -> 'model -> 'action -> 'model) ->
     graph ->
-    'model value * ('action -> unit effect_) value
+    'model value * ('action -> unit task) value
   (** [state_machine] allows you to build a state machine whose state is
       initialized to whatever you pass to [default_model], and the state machine
       transitions states using the [apply_action] function. The current state
-      and a function for injecting an action into a schedulable effect are
-      returned.
+      and a function for turning an action into a schedulable task are returned.
 
       [?equal] does the same thing that it does for [state], go read those docs
       for more. *)
@@ -204,7 +204,7 @@ module type Bonesai = sig
       'model) ->
     'input value ->
     graph ->
-    'model value * ('action -> unit effect_) value
+    'model value * ('action -> unit task) value
   (** [state_machine_with_input] is identical to [state_machine] except that you
       can pass an arbitrary ['a value] dependency and have access to the current
       value within the [apply_action] function. *)
@@ -218,7 +218,7 @@ module type Bonesai = sig
       'action ->
       'model * 'return) ->
     graph ->
-    'model value * ('action -> 'return effect_) value
+    'model value * ('action -> 'return task) value
   (** [actor] is similar to [state_machine], but its [recv] function is
       responsible for not only transitioning the state of the state machine, but
       also for responding with a "return value" to whoever sent the message to
@@ -235,7 +235,7 @@ module type Bonesai = sig
       'model * 'return) ->
     'input value ->
     graph ->
-    'model value * ('action -> 'return effect_) value
+    'model value * ('action -> 'return task) value
   (** [actor_with_input] is just like [actor] but it can witness the current
       value of a [value] inside its [recv] function just like
       [state_machine_with_input] *)
@@ -270,7 +270,7 @@ module type Bonesai = sig
         with type 'a patch := 'a p list
          and type 'a raw := 'a list
          and type graph := graph
-         and type 'a effect_ := 'a effect_
+         and type 'a task := 'a task
          and type 'a value := 'a value
 
     (* TODO much stuff of RList is missing *)
@@ -286,7 +286,7 @@ module type Bonesai = sig
         with type 'a patch := 'a patch
          and type 'a raw := 'a M.t
          and type graph := graph
-         and type 'a effect_ := 'a effect_
+         and type 'a task := 'a task
          and type 'a value := 'a value
 
     val filter : (M.key -> 'a -> bool) -> 'a data -> 'a data

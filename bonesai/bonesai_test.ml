@@ -7,13 +7,13 @@ let tests0 =
   ]
 
 let counter start_state graph =
-  let state, inject =
+  let state, to_task =
     Bonesai.state_machine ~default_model:start_state
       ~apply_action:(fun _ctx ctr -> function
         | `Incr -> ctr + 1 | `Decr -> ctr - 1)
       graph
   in
-  Bonesai.both state inject
+  Bonesai.both state to_task
 
 (* TODO test Bonsai.{state, state_opt, state', toggle, toggle'} *)
 
@@ -22,19 +22,19 @@ let tests1 =
     Testo.create "counter" (fun () ->
         let open Bonesai.Runtime in
         let app = compile (counter 7) in
-        let inject action =
+        let to_task action =
           let _, fn = observe app in
-          schedule_effect app (fn action)
+          schedule app (fn action)
         and observe () =
           let state, _ = observe app in
           state
         in
         Alcotest.(check int) "init" 7 (observe ());
-        inject `Incr;
+        to_task `Incr;
         Alcotest.(check int) "incr" 8 (observe ());
-        inject `Decr;
+        to_task `Decr;
         Alcotest.(check int) "decr 1st" 7 (observe ());
-        inject `Decr;
+        to_task `Decr;
         Alcotest.(check int) "decr 2nd" 6 (observe ()));
   ]
 

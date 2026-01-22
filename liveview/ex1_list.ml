@@ -5,9 +5,9 @@ module BList = Bonesai.BList
 
 let main _req graph =
   (* TODO augment example to allow deletion of specific elements & reordering *)
-  let list, inject = BList.create ~start:[ (); (); () ] graph in
-  let incr = handler inject BList.(Patch [ I (0, ()) ]) graph
-  and decr = handler inject BList.(Patch [ R 0 ]) graph
+  let list, to_task = BList.create ~start:[ (); (); () ] graph in
+  let incr = handler to_task BList.(Patch [ I (0, ()) ]) graph
+  and decr = handler to_task BList.(Patch [ R 0 ]) graph
   and render list incr decr =
     let size = List.length list in
     let open Html in
