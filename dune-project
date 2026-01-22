@@ -8,7 +8,7 @@
   (name liveview)
   (synopsis "Experiments to build a liveview and bonsai inspired web framework")
   (depends
-    (ocaml (= 5.1.1))
+    (ocaml (>= 5.1))
     (dune :build)
     react
     reactiveData
