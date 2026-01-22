@@ -45,7 +45,7 @@ type graph = Bonesai.graph
 
 let extra g : app_context = Bonesai.extra g
 
-type 'a value = 'a Bonesai.t
+type 'a value = 'a Bonesai.value
 
 (* allocate a new effect handler id *)
 let handler_id (g : graph) =

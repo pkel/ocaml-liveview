@@ -1,19 +1,14 @@
 module type Types = sig
-  type 'a t
-  (** The primary type in the Bonesai library, you can think of a value with
-      type ['a t] as "an 'a that changes over time". The two main ways that you
-      get a value with this type are:
+  type 'a value
+  (** The primary type in this library, you can think of ['a value] as "an ['a]
+      that changes over time". The two main ways to create ['a value] are:
 
       1. by creating a state machine
-      - the current value of the state machine is returned as a
-        ['state Bonesai.t]
+      - the current state of the state machine is returned as a ['state value]
       - the "send the state machine an action" function is also inside of a
-        [Bonesai.t]
+        ['a value]
 
-      2. by mapping on existing [Bonesai.t]'s to derive a new computed
-      [Bonesai.t] *)
-
-  (* TODO rename t -> value ? *)
+      2. by mapping on existing [value]'s to derive a new computed [value] *)
 
   type 'a effect_
 
@@ -22,12 +17,15 @@ module type Types = sig
      instead? *)
 
   type graph
-  (** [Bonesai.graph] is a required parameter to all Bonesai functions which do
-      more than pure computation. The value is always [local_] because Bonesai
+  (** [graph] is a required parameter to all Bonesai functions which do more
+      than pure computation. The value is always [local_] because Bonesai
       applications have two phases:
 
+      (* TODO don't have _local, that's an OxCaml thing. Remove any references
+      to it *)
+
       1. The graph building phase. This is the phase where you have access to a
-      [local_ Bonesai.graph]
+      [local_ graph]
 
       2. Runtime. The application has started and modifying the graph is no
       longer permitted. *)
@@ -60,10 +58,11 @@ module type Data = sig
     | Set of 'a raw
         (** [Set d] replaces the entire container non-incrementally *)
 
-  val create : start:'a raw -> graph -> 'a data * ('a action -> unit effect_) t
+  val create :
+    start:'a raw -> graph -> 'a data * ('a action -> unit effect_) value
   (** Instantiate an incremental container with given start value *)
 
-  val value : 'a data -> 'a raw t
+  val value : 'a data -> 'a raw value
   (** Bonesai value representing the current contents of the container *)
 
   (* TODO bring in remaining stuff from ReactiveData.S, incl. fold & map *)
@@ -76,51 +75,39 @@ module type Bonesai = sig
 
   include Types
 
-  type 'a t
-  type 'a effect_
+  val return : 'a -> 'a value
+  (** [return] produces a [value] whose inner value is constant. *)
 
-  type graph
-  (** [Bonesai.graph] is a required parameter to all Bonesai functions which do
-      more than pure computation. The value is always [local_] because Bonesai
-      applications have two phases:
-
-      1. The graph building phase. This is the phase where you have access to a
-      [local_ Bonesai.graph]
-
-      2. Runtime. The application has started and modifying the graph is no
-      longer permitted. *)
-
-  val return : 'a -> 'a t
-  (** [return] produces a [Bonesai.t] whose inner value is constant. *)
-
-  val map : 'a t -> f:('a -> 'b) -> 'b t
-  (** [map], [map2], and [both] are ways to build a new [Bonesai.t] which is
-      dependent on the values of other [Bonesai.t]. As noted above, you should
+  val map : 'a value -> f:('a -> 'b) -> 'b value
+  (** [map], [map2], and [both] are ways to build a new [value] which is
+      dependent on the values of other [value]. As noted above, you should
       prefer to use [let%arr] than these functions, because they come with some
       performance benefits. *)
 
-  val map2 : 'a t -> 'b t -> f:('a -> 'b -> 'c) -> 'c t
-  val both : 'a t -> 'b t -> ('a * 'b) t
+  (* TODO don't have let%arr. Remove any references to it *)
+
+  val map2 : 'a value -> 'b value -> f:('a -> 'b -> 'c) -> 'c value
+  val both : 'a value -> 'b value -> ('a * 'b) value
 
   module Let_syntax : sig
-    val ( let+ ) : 'a t -> ('a -> 'b) -> 'b t
-    val ( and+ ) : 'a t -> 'b t -> ('a * 'b) t
+    val ( let+ ) : 'a value -> ('a -> 'b) -> 'b value
+    val ( and+ ) : 'a value -> 'b value -> ('a * 'b) value
   end
 
-  val cutoff : 'a t -> equal:('a -> 'a -> bool) -> 'a t
-  (** The Bonesai runtime will recompute a node if any of its dependencies
-      change. But sometimes, you may want to consider two contained values to be
-      "close enough" and cut off recomputation. You can do that by passing a
-      custom equality function to [Bonesai.cutoff]. *)
+  val cutoff : 'a value -> equal:('a -> 'a -> bool) -> 'a value
+  (** The runtime will recompute a node if any of its dependencies change. But
+      sometimes, you may want to consider two contained values to be "close
+      enough" and cut off recomputation. You can do that by passing a custom
+      equality function to [cutoff]. *)
 
   val state :
     ?equal:('model -> 'model -> bool) ->
     'model ->
     graph ->
-    'model t * ('model -> unit effect_) t
-  (** [Bonesai.state] allocates a stateful Bonesai.t node in the graph. It
-      returns both the [Bonesai.t] containing the current state, as well as a
-      [Bonesai.t] containing a function for overwriting the state.
+    'model value * ('model -> unit effect_) value
+  (** [state] allocates a stateful value. It returns both the [value] containing
+      the current state, as well as a [value] containing a function for
+      overwriting the state.
 
       You must provide a "starting" value for the state.
 
@@ -129,11 +116,14 @@ module type Bonesai = sig
       store a reference to only the default model rather than the current
       model.) *)
 
+  (* TODO the reference to assoc and match%sub seems relevant. Can/should I do
+     the same? *)
+
   val state_opt :
     ?equal:('model -> 'model -> bool) ->
     ?default_model:'model ->
     graph ->
-    'model option t * ('model option -> unit effect_) t
+    'model option value * ('model option -> unit effect_) value
   (** [state_opt] is just like [state] except that the model is optional. The
       model starts out as [None] unless you provide a value to the
       [default_model] optional parameter. *)
@@ -142,24 +132,23 @@ module type Bonesai = sig
     ?equal:('model -> 'model -> bool) ->
     'model ->
     graph ->
-    'model t * (('model -> 'model) -> unit effect_) t
+    'model value * (('model -> 'model) -> unit effect_) value
   (** Similar to [state], but the `set` function takes a function that
       calculates the new state from the previous state. *)
 
-  val toggle : default_model:bool -> graph -> bool t * unit effect_ t
-  (** [Bonesai.toggle] is a small helper function for building a [bool] state
-      that toggles back and forth between [true] and [false] whenever the
+  val toggle : default_model:bool -> graph -> bool value * unit effect_ value
+  (** [toggle] is a small helper function for building a [bool] state that
+      toggles back and forth between [true] and [false] whenever the
       [unit effect_] is scheduled. *)
 
   module Toggle : sig
-    type nonrec t = {
-      state : bool t;
-      set_state : (bool -> unit effect_) t;
-      toggle : unit effect_ t;
+    type t = {
+      state : bool value;
+      set_state : (bool -> unit effect_) value;
+      toggle : unit effect_ value;
     }
-    (** For the more advanced toggle function [Bonesai.toggle'] we return the
-        state, the toggling function, and a function to set the state directly.
-    *)
+    (** For the more advanced toggle function [toggle'] we return the state, the
+        toggling function, and a function to set the state directly. *)
   end
 
   val toggle' : default_model:bool -> graph -> Toggle.t
@@ -194,15 +183,15 @@ module type Bonesai = sig
     apply_action:
       (('action, unit) Apply_action_context.t -> 'model -> 'action -> 'model) ->
     graph ->
-    'model t * ('action -> unit effect_) t
-  (** [Bonesai.state_machine] allows you to build a state machine whose state is
+    'model value * ('action -> unit effect_) value
+  (** [state_machine] allows you to build a state machine whose state is
       initialized to whatever you pass to [default_model], and the state machine
       transitions states using the [apply_action] function. The current state
       and a function for injecting an action into a schedulable effect are
       returned.
 
-      [?equal] does the same thing that it does for [Bonesai.state], go read
-      those docs for more. *)
+      [?equal] does the same thing that it does for [state], go read those docs
+      for more. *)
 
   val state_machine_with_input :
     ?equal:('model -> 'model -> bool) ->
@@ -213,12 +202,12 @@ module type Bonesai = sig
       'model ->
       'action ->
       'model) ->
-    'input t ->
+    'input value ->
     graph ->
-    'model t * ('action -> unit effect_) t
-  (** [Bonesai.state_machine_with_input] is identical to [Bonesai.state_machine]
-      except that you can pass an arbitrary ['a Bonesai.t] dependency and have
-      access to the current value within the [apply_action] function. *)
+    'model value * ('action -> unit effect_) value
+  (** [state_machine_with_input] is identical to [state_machine] except that you
+      can pass an arbitrary ['a value] dependency and have access to the current
+      value within the [apply_action] function. *)
 
   val actor :
     ?equal:('model -> 'model -> bool) ->
@@ -229,11 +218,11 @@ module type Bonesai = sig
       'action ->
       'model * 'return) ->
     graph ->
-    'model t * ('action -> 'return effect_) t
-  (** [Bonesai.actor] is similar to [Bonesai.state_machine], but its [recv]
-      function is responsible for not only transitioning the state of the state
-      machine, but also for responding with a "return value" to whoever sent the
-      message to the actor. *)
+    'model value * ('action -> 'return effect_) value
+  (** [actor] is similar to [state_machine], but its [recv] function is
+      responsible for not only transitioning the state of the state machine, but
+      also for responding with a "return value" to whoever sent the message to
+      the actor. *)
 
   val actor_with_input :
     ?equal:('model -> 'model -> bool) ->
@@ -244,11 +233,11 @@ module type Bonesai = sig
       'model ->
       'action ->
       'model * 'return) ->
-    'input t ->
+    'input value ->
     graph ->
-    'model t * ('action -> 'return effect_) t
+    'model value * ('action -> 'return effect_) value
   (** [actor_with_input] is just like [actor] but it can witness the current
-      value of a [Bonsai.t] inside its [recv] function just like
+      value of a [value] inside its [recv] function just like
       [state_machine_with_input] *)
 
   (* TODO Janestreet Bonsai has another actor that allows to specify the
@@ -282,7 +271,7 @@ module type Bonesai = sig
          and type 'a raw := 'a list
          and type graph := graph
          and type 'a effect_ := 'a effect_
-         and type 'a t := 'a t
+         and type 'a value := 'a value
 
     (* TODO much stuff of RList is missing *)
   end
@@ -298,7 +287,7 @@ module type Bonesai = sig
          and type 'a raw := 'a M.t
          and type graph := graph
          and type 'a effect_ := 'a effect_
-         and type 'a t := 'a t
+         and type 'a value := 'a value
 
     val filter : (M.key -> 'a -> bool) -> 'a data -> 'a data
   end

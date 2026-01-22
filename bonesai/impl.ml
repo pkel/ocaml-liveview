@@ -36,7 +36,7 @@ module type WithExtra = sig
   module Runtime : sig
     type 'a app
 
-    val compile : (graph -> 'a t) -> 'a app * extra
+    val compile : (graph -> 'a value) -> 'a app * extra
     val schedule_effect : 'a app -> unit effect_ -> unit
     val observe : 'a app -> 'a
   end
@@ -56,7 +56,7 @@ module Make (Effect : Effect) (Extra : Extra) :
 
   let extra graph = graph
 
-  type 'a t = 'a React.signal
+  type 'a value = 'a React.signal
 
   let phys_equal = ( == )
   let return = React.S.const
@@ -124,10 +124,10 @@ module Make (Effect : Effect) (Extra : Extra) :
     (signal s, constant toggle_effect)
 
   module Toggle = struct
-    type nonrec t = {
-      state : bool t;
-      set_state : (bool -> unit effect_) t;
-      toggle : unit effect_ t;
+    type t = {
+      state : bool value;
+      set_state : (bool -> unit effect_) value;
+      toggle : unit effect_ value;
     }
   end
 

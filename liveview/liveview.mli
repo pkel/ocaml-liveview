@@ -1,7 +1,7 @@
 module Bonesai : Bonesai.T
 
 type graph = Bonesai.graph
-type 'a value = 'a Bonesai.t
+type 'a value = 'a Bonesai.value
 type 'a inject = 'a -> unit Bonesai.effect_
 type 'a handler
 
