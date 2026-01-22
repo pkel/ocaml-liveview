@@ -56,34 +56,43 @@ module Make (Effect : Effect) (Extra : Extra) :
 
   let extra graph = graph
 
-  type 'a t = 'a Value.t
+  type 'a t = 'a React.signal
 
-  let return = Value.constant
-  let map = Value.map
-  let map2 = Value.map2
-  let both = Value.both
+  let phys_equal = ( == )
+  let return = React.S.const
+  let map a ~f = React.S.l1 ~eq:phys_equal f a
+  let map2 a b ~f = React.S.l2 ~eq:phys_equal f a b
+  let both a b = map2 a b ~f:(fun a b -> (a, b))
 
   module Let_syntax = struct
     let ( let+ ) v f = map v ~f
     let ( and+ ) = both
   end
 
-  let cutoff = Value.cutoff
+  let cutoff s ~equal =
+    (* In principle, all React.S.* functions support an ~eq parameter to
+       integrate the cutoff directly into the node. We here do it differently
+       and allocate a new node with the requested cutoff.
+
+       I had some machinery to optimize this until commit 13bb591bf but dropped
+       it for simplicity's sake.
+    *)
+    React.S.map ~eq:equal Fun.id s
 
   module Runtime = struct
     type 'a app = 'a React.signal
 
     let compile bonesai =
       let graph = Extra.create () in
-      let value = bonesai graph in
-      (Value.eval value, graph)
+      let signal = bonesai graph in
+      (signal, graph (* graph = extra *))
 
     let observe = React.S.value
     let schedule_effect _app = Effect.execute
   end
 
-  let signal = Value.signal
-  let constant = Value.constant
+  let signal s = s
+  let constant x = return x
 
   let state ?(equal = ( == )) start _graph =
     let s, setter = React.S.create ~eq:equal start in
@@ -183,26 +192,7 @@ module Make (Effect : Effect) (Extra : Extra) :
     and apply_effect action =
       Effect.create (fun () ->
           let old_model = React.S.value s in
-          let input =
-            (* TODO avoid redundant Value.eval
-
-               This is an interesting case, actually. The Value.eval would
-               construct an entirely new React graph instead of attaching the
-               existing input graph to the new state machine. So, this TODO is
-               quite important.
-
-               But how to solve it? My Value.t does not allow it. And in JS
-               Bonsai.private_base.value.t it's not obvious. Maybe the [Named]
-               constructor is the key? Similarly, what happens in
-               private_base/computation.ml and Trampoline.t?
-
-               Is there maybe a 80/20 solution that avoids additional
-               machinery. Reduce existing machinery, even? E.g. can we maybe
-               skip creating the Value.t ADT representation and instead build
-               React.signals directly?
-               *)
-            React.S.value (Value.eval input)
-          in
+          let input = React.S.value input in
           let new_model = apply_action ctx input old_model action in
           setter new_model)
     in
@@ -216,10 +206,7 @@ module Make (Effect : Effect) (Extra : Extra) :
     and apply_effect action =
       Effect.create (fun () ->
           let old_model = React.S.value s in
-          let input =
-            React.S.value (Value.eval input)
-            (* TODO, see state_machine_with_input *)
-          in
+          let input = React.S.value input in
           let new_model, return = recv ctx input old_model action in
           let () = setter new_model in
           return)

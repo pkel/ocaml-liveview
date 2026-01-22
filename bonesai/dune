@@ -1,6 +1,6 @@
 (library
  (name bonesai)
- (modules bonesai intf impl value)
+ (modules bonesai intf impl)
  (libraries react reactiveData)
  (public_name liveview.bonesai))
 
