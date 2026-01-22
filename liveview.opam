@@ -4,17 +4,15 @@ synopsis: "Experiments to build a liveview and bonsai inspired web framework"
 depends: [
   "ocaml" {= "5.1.1"}
   "dune" {>= "3.14" & build}
-  "bonsai" {= "v0.17.0"}
   "react"
   "reactiveData"
+  "tyxml"
   "dream" {= "1.0.0~alpha8"}
-  "tyxml" {= "4.6.0"}
-  "lwt_ppx" {= "5.9.1"}
-  "yojson" {= "3.0.0"}
-  "ppx_yojson_conv" {= "v0.17.0"}
-  "ppx_yojson_conv_lib" {= "v0.17.0" & with-dev-setup}
-  "crunch" {= "4.0.0" & with-dev-setup}
-  "ppx_expect" {with-test}
+  "lwt_ppx" {< "6"}
+  "yojson" {>= "3.0.0" & < "4"}
+  "ppx_yojson_conv"
+  "ppx_yojson_conv_lib" {with-dev-setup}
+  "crunch" {>= "4.0.0" & < "5" & with-dev-setup}
   "alcotest" {with-test}
   "testo" {with-test}
   "odig" {with-dev-setup}
