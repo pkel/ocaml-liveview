@@ -1,6 +1,6 @@
 open Weak_ptr
 
-let t : effect Registry.t = Registry.create ()
+let t : effect_ Registry.t = Registry.create ()
 let eff i = Effect.create (fun () -> Printf.eprintf "effect %i\n" i)
 let arr = Array.init 5 eff
 let ptr = Array.map (fun el -> Registry.register t el) arr

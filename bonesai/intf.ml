@@ -15,7 +15,11 @@ module type Types = sig
 
   (* TODO rename t -> value ? *)
 
-  type 'a effect
+  type 'a effect_
+
+  (* TODO effect is a really bad name, as OCaml has its own effects now and
+     they are something else. [effect] is a keyword, even. Call it delayed
+     instead? *)
 
   type graph
   (** [Bonesai.graph] is a required parameter to all Bonesai functions which do
@@ -56,7 +60,7 @@ module type Data = sig
     | Set of 'a raw
         (** [Set d] replaces the entire container non-incrementally *)
 
-  val create : start:'a raw -> graph -> 'a data * ('a action -> unit effect) t
+  val create : start:'a raw -> graph -> 'a data * ('a action -> unit effect_) t
   (** Instantiate an incremental container with given start value *)
 
   val value : 'a data -> 'a raw t
@@ -73,7 +77,7 @@ module type Bonesai = sig
   include Types
 
   type 'a t
-  type 'a effect
+  type 'a effect_
 
   type graph
   (** [Bonesai.graph] is a required parameter to all Bonesai functions which do
@@ -113,7 +117,7 @@ module type Bonesai = sig
     ?equal:('model -> 'model -> bool) ->
     'model ->
     graph ->
-    'model t * ('model -> unit effect) t
+    'model t * ('model -> unit effect_) t
   (** [Bonesai.state] allocates a stateful Bonesai.t node in the graph. It
       returns both the [Bonesai.t] containing the current state, as well as a
       [Bonesai.t] containing a function for overwriting the state.
@@ -129,7 +133,7 @@ module type Bonesai = sig
     ?equal:('model -> 'model -> bool) ->
     ?default_model:'model ->
     graph ->
-    'model option t * ('model option -> unit effect) t
+    'model option t * ('model option -> unit effect_) t
   (** [state_opt] is just like [state] except that the model is optional. The
       model starts out as [None] unless you provide a value to the
       [default_model] optional parameter. *)
@@ -138,20 +142,20 @@ module type Bonesai = sig
     ?equal:('model -> 'model -> bool) ->
     'model ->
     graph ->
-    'model t * (('model -> 'model) -> unit effect) t
+    'model t * (('model -> 'model) -> unit effect_) t
   (** Similar to [state], but the `set` function takes a function that
       calculates the new state from the previous state. *)
 
-  val toggle : default_model:bool -> graph -> bool t * unit effect t
+  val toggle : default_model:bool -> graph -> bool t * unit effect_ t
   (** [Bonesai.toggle] is a small helper function for building a [bool] state
       that toggles back and forth between [true] and [false] whenever the
-      [unit effect] is scheduled. *)
+      [unit effect_] is scheduled. *)
 
   module Toggle : sig
     type nonrec t = {
       state : bool t;
-      set_state : (bool -> unit effect) t;
-      toggle : unit effect t;
+      set_state : (bool -> unit effect_) t;
+      toggle : unit effect_ t;
     }
     (** For the more advanced toggle function [Bonesai.toggle'] we return the
         state, the toggling function, and a function to set the state directly.
@@ -159,7 +163,7 @@ module type Bonesai = sig
   end
 
   val toggle' : default_model:bool -> graph -> Toggle.t
-  (** Just like [toggle] except that you also have an [effect] for directly
+  (** Just like [toggle] except that you also have an [effect_] for directly
       setting the state in addition to toggling it back and forth. *)
 
   module Apply_action_context : sig
@@ -177,8 +181,8 @@ module type Bonesai = sig
 
     type ('action, 'response) t
 
-    val inject : ('action, 'response) t -> 'action -> 'response effect
-    val schedule_event : _ t -> unit effect -> unit
+    val inject : ('action, 'response) t -> 'action -> 'response effect_
+    val schedule_event : _ t -> unit effect_ -> unit
 
     (* TODO *)
     (* val time_source : _ t -> Time_source.t *)
@@ -190,7 +194,7 @@ module type Bonesai = sig
     apply_action:
       (('action, unit) Apply_action_context.t -> 'model -> 'action -> 'model) ->
     graph ->
-    'model t * ('action -> unit effect) t
+    'model t * ('action -> unit effect_) t
   (** [Bonesai.state_machine] allows you to build a state machine whose state is
       initialized to whatever you pass to [default_model], and the state machine
       transitions states using the [apply_action] function. The current state
@@ -211,7 +215,7 @@ module type Bonesai = sig
       'model) ->
     'input t ->
     graph ->
-    'model t * ('action -> unit effect) t
+    'model t * ('action -> unit effect_) t
   (** [Bonesai.state_machine_with_input] is identical to [Bonesai.state_machine]
       except that you can pass an arbitrary ['a Bonesai.t] dependency and have
       access to the current value within the [apply_action] function. *)
@@ -243,7 +247,7 @@ module type Bonesai = sig
         with type 'a patch := 'a p list
          and type 'a raw := 'a list
          and type graph := graph
-         and type 'a effect := 'a effect
+         and type 'a effect_ := 'a effect_
          and type 'a t := 'a t
 
     (* TODO much stuff of RList is missing *)
@@ -259,7 +263,7 @@ module type Bonesai = sig
         with type 'a patch := 'a patch
          and type 'a raw := 'a M.t
          and type graph := graph
-         and type 'a effect := 'a effect
+         and type 'a effect_ := 'a effect_
          and type 'a t := 'a t
 
     val filter : (M.key -> 'a -> bool) -> 'a data -> 'a data

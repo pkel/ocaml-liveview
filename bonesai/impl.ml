@@ -37,7 +37,7 @@ module type WithExtra = sig
     type 'a app
 
     val compile : (graph -> 'a t) -> 'a app * extra
-    val schedule_effect : 'a app -> unit effect -> unit
+    val schedule_effect : 'a app -> unit effect_ -> unit
     val observe : 'a app -> 'a
   end
 end
@@ -49,8 +49,8 @@ module NoExtra = struct
 end
 
 module Make (Effect : Effect) (Extra : Extra) :
-  WithExtra with type extra = Extra.t and type 'a effect = 'a Effect.t = struct
-  type 'a effect = 'a Effect.t
+  WithExtra with type extra = Extra.t and type 'a effect_ = 'a Effect.t = struct
+  type 'a effect_ = 'a Effect.t
   type extra = Extra.t
   type graph = Extra.t (* think: unit plus some opaque value *)
 
@@ -117,8 +117,8 @@ module Make (Effect : Effect) (Extra : Extra) :
   module Toggle = struct
     type nonrec t = {
       state : bool t;
-      set_state : (bool -> unit effect) t;
-      toggle : unit effect t;
+      set_state : (bool -> unit effect_) t;
+      toggle : unit effect_ t;
     }
   end
 
@@ -139,8 +139,8 @@ module Make (Effect : Effect) (Extra : Extra) :
 
   module Apply_action_context = struct
     type ('action, 'response) t = {
-      inject : 'action -> 'response effect;
-      schedule_event : unit effect -> unit;
+      inject : 'action -> 'response effect_;
+      schedule_event : unit effect_ -> unit;
     }
 
     let inject t = t.inject

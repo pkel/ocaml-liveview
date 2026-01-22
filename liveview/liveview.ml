@@ -347,10 +347,10 @@ module Dream_websocket = struct
         (Hashtbl.to_seq t |> Lwt_stream.of_seq)
   end
 
-  let apply app effect =
+  let apply app effect_ =
     let updates, handler = Updates.create () in
     let f () =
-      Bonesai.Runtime.schedule_effect app effect;
+      Bonesai.Runtime.schedule_effect app effect_;
       (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
       updates
     in
@@ -386,7 +386,7 @@ module Dream_websocket = struct
                       let msg = "event/handler mismatch: " ^ msg in
                       let%lwt () = Message.send_error websocket msg in
                       loop ()
-                  | Some effect ->
+                  | Some effect_ ->
                       let%lwt () =
                         Lwt_unix.sleep 0.5
                         (* add latency to test tolerance *)
@@ -394,7 +394,7 @@ module Dream_websocket = struct
                       in
                       let updates =
                         Dream.log "%s: apply" id;
-                        apply app effect
+                        apply app effect_
                       in
                       let%lwt () = Updates.send updates websocket in
                       loop ()

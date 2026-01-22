@@ -15,7 +15,7 @@ end = struct
   let execute t = t ()
 end
 
-type effect = Effect.t
+type effect_ = Effect.t
 
 module Registry : sig
   type 'a t

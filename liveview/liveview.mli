@@ -2,7 +2,7 @@ module Bonesai : Bonesai.T
 
 type graph = Bonesai.graph
 type 'a value = 'a Bonesai.t
-type 'a inject = 'a -> unit Bonesai.effect
+type 'a inject = 'a -> unit Bonesai.effect_
 type 'a handler
 
 (* TODO add some mechanism to handle dynamic lists/assocs/maps *)
