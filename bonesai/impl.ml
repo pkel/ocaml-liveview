@@ -170,8 +170,28 @@ module Make (Effect : Effect) (Extra : Extra) :
       Effect.create (fun () ->
           let old_model = React.S.value s in
           let input =
-            React.S.value
-              (Value.eval input (* TODO avoid redundant evaluation *))
+            (* TODO avoid redundant Value.eval
+
+               This is an interesting case, actually. The Value.eval would
+               construct an entirely new React graph instead of attaching the
+               existing input graph to the new state machine. So, this TODO is
+               quite important.
+
+               But how to solve it? My Value.t does not allow it. And in JS
+               Bonsai.private_base.value.t it's not obvious. Maybe the [Named]
+               constructor is the key? Similarly, what happens in
+               private_base/computation.ml and Trampoline.t?
+
+               Is there maybe a 80/20 solution that avoids additional
+               machinery. Reduce existing machinery, even? E.g. can we maybe
+               skip creating the Value.t ADT representation and instead build
+               React.signals directly?
+
+               But let's first implement the JS Bonsai.{actor, wrap} functions.
+               My suspicion is, wrap has the same problem.
+               Bonsai.actor_with_input certainly has it.
+               *)
+            React.S.value (Value.eval input)
           in
           let new_model = apply_action ctx input old_model action in
           setter new_model)
