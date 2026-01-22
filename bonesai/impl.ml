@@ -160,6 +160,20 @@ module Make (Effect : Effect) (Extra : Extra) :
     in
     (signal s, constant apply_effect)
 
+  let actor ?(equal = ( == )) ~default_model ~recv _graph =
+    let s, setter = React.S.create ~eq:equal default_model in
+    let rec ctx =
+      Apply_action_context.
+        { inject = apply_effect; schedule_event = Effect.execute }
+    and apply_effect action =
+      Effect.create (fun () ->
+          let old_model = React.S.value s in
+          let new_model, return = recv ctx old_model action in
+          let () = setter new_model in
+          return)
+    in
+    (signal s, constant apply_effect)
+
   let state_machine_with_input ?(equal = ( == )) ~default_model ~apply_action
       input _graph =
     let s, setter = React.S.create ~eq:equal default_model in
@@ -186,15 +200,29 @@ module Make (Effect : Effect) (Extra : Extra) :
                machinery. Reduce existing machinery, even? E.g. can we maybe
                skip creating the Value.t ADT representation and instead build
                React.signals directly?
-
-               But let's first implement the JS Bonsai.{actor, wrap} functions.
-               My suspicion is, wrap has the same problem.
-               Bonsai.actor_with_input certainly has it.
                *)
             React.S.value (Value.eval input)
           in
           let new_model = apply_action ctx input old_model action in
           setter new_model)
+    in
+    (signal s, constant apply_effect)
+
+  let actor_with_input ?(equal = ( == )) ~default_model ~recv input _graph =
+    let s, setter = React.S.create ~eq:equal default_model in
+    let rec ctx =
+      Apply_action_context.
+        { inject = apply_effect; schedule_event = Effect.execute }
+    and apply_effect action =
+      Effect.create (fun () ->
+          let old_model = React.S.value s in
+          let input =
+            React.S.value (Value.eval input)
+            (* TODO, see state_machine_with_input *)
+          in
+          let new_model, return = recv ctx input old_model action in
+          let () = setter new_model in
+          return)
     in
     (signal s, constant apply_effect)
 

@@ -220,6 +220,40 @@ module type Bonesai = sig
       except that you can pass an arbitrary ['a Bonesai.t] dependency and have
       access to the current value within the [apply_action] function. *)
 
+  val actor :
+    ?equal:('model -> 'model -> bool) ->
+    default_model:'model ->
+    recv:
+      (('action, 'return) Apply_action_context.t ->
+      'model ->
+      'action ->
+      'model * 'return) ->
+    graph ->
+    'model t * ('action -> 'return effect_) t
+  (** [Bonesai.actor] is similar to [Bonesai.state_machine], but its [recv]
+      function is responsible for not only transitioning the state of the state
+      machine, but also for responding with a "return value" to whoever sent the
+      message to the actor. *)
+
+  val actor_with_input :
+    ?equal:('model -> 'model -> bool) ->
+    default_model:'model ->
+    recv:
+      (('action, 'return) Apply_action_context.t ->
+      'input ->
+      'model ->
+      'action ->
+      'model * 'return) ->
+    'input t ->
+    graph ->
+    'model t * ('action -> 'return effect_) t
+  (** [actor_with_input] is just like [actor] but it can witness the current
+      value of a [Bonsai.t] inside its [recv] function just like
+      [state_machine_with_input] *)
+
+  (* TODO Janestreet Bonsai has another actor that allows to specify the
+     return type per action using GADTs. *)
+
   module BList : sig
     (** Incremental list data structure; wrapper around ReactiveData.RList *)
 
