@@ -20,16 +20,18 @@ module type Types = sig
 
   type graph
   (** [graph] is a required parameter to all Bonesai functions which do more
-      than pure computation. The value is always [local_] because Bonesai
-      applications have two phases:
-
-      TODO don't have _local, that's an OxCaml thing. Remove any references.
+      than pure computation.
 
       1. The graph building phase. This is the phase where you have access to a
-      [local_ graph]
+      [graph].
 
       2. Runtime. The application has started and modifying the graph is no
-      longer permitted. *)
+      longer permitted.
+
+      Note: It seems Janestreet's Bonsai enforces that the graph is local to the
+      function, using recent features of OxCaml. On base OCaml we have to rely
+      on users to not store a reference to graph at build time to use it later
+      at runtime. *)
 end
 
 module type Data = sig
