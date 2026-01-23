@@ -8,7 +8,9 @@ module type Types = sig
       - the "send the state machine an action" function is also inside of a
         ['a value]
 
-      2. by mapping on existing [value]'s to derive a new computed [value] *)
+      2. by mapping on existing [value]'s to derive a new computed [value]
+
+      Janestreet's Bonsai calls this ['a Bonsai.t]. *)
 
   type 'a task
   (** An ['a task] represents a delayed computation that returns an ['a]. Such
@@ -16,7 +18,7 @@ module type Types = sig
       future. They might trigger side-effects and not idempotent. There is no
       memoization. It might be helpful to think of ['a task = unit -> 'a] but we
       intentionally hide the representation to avoid programmers creating tasks
-      manually. *)
+      manually. Janestreet's Bonsai calls this ['a effect]. *)
 
   type graph
   (** [graph] is a required parameter to all Bonesai functions which do more
@@ -30,13 +32,13 @@ module type Types = sig
 
       Note: It seems Janestreet's Bonsai enforces that the graph is local to the
       function, using recent features of OxCaml. On base OCaml we have to rely
-      on users to not store a reference to graph at build time to use it later
-      at runtime. *)
+      on users to not store a reference to the graph at build time to use it
+      later at runtime. *)
 end
 
 module type Data = sig
-  (** shared signature for incremental data structures; adapted from
-      {!ReactiveData.S} *)
+  (** Shared signature for incremental data structures; adapted from
+      {!ReactiveData.S}. *)
 
   (* ReactiveData.S has a note saying "most functions in this interface
      are not safe to call during a React update step". I do not know what a
@@ -62,18 +64,28 @@ module type Data = sig
         (** [Set d] replaces the entire container non-incrementally *)
 
   val create : start:'a raw -> graph -> 'a data * ('a action -> unit task) value
-  (** Instantiate an incremental container with given start value *)
+  (** Instantiate an incremental container with given start value. *)
 
   val value : 'a data -> 'a raw value
-  (** Bonesai value representing the current contents of the container *)
+  (** Bonesai value representing the current contents of the container. *)
 
   (* TODO bring in remaining stuff from ReactiveData.S, incl. fold & map *)
 end
 
 module type Bonesai = sig
-  (** Adapted from Janestreet's Bonsai library, late 2025 / early 2026.
+  (** Janestreet's Bonsai, reimplemented without Janestreet libraries, using the
+      OCaml Stdlib, {!React}, and {!ReactiveData} instead.
+
+      The API is adapted from Janestreets Bonsai.Cont API from late 2025 / early
+      2026. See
       https://github.com/janestreet/bonsai/blob/8e6c34dceff46c92c3db58d7801da805417139ad/src/cont.mli
   *)
+
+  (* TODO add some high level description what we're doing. Like in
+     Janestreet's Bonsai. Build a graph. Nodes represent stateful computations.
+     Edges represent dependencies between the computations. Runtime passes
+     values between computations and ensures everything is up to date, avoiding
+     redundant evaluations whenever computation inputs are constant. *)
 
   include Types
 
@@ -82,11 +94,7 @@ module type Bonesai = sig
 
   val map : 'a value -> f:('a -> 'b) -> 'b value
   (** [map], [map2], and [both] are ways to build a new [value] which is
-      dependent on the values of other [value]. As noted above, you should
-      prefer to use [let%arr] than these functions, because they come with some
-      performance benefits. *)
-
-  (* TODO don't have let%arr. Remove any references to it *)
+      dependent on the values of other [value]s. *)
 
   val map2 : 'a value -> 'b value -> f:('a -> 'b -> 'c) -> 'c value
   val both : 'a value -> 'b value -> ('a * 'b) value
@@ -99,8 +107,8 @@ module type Bonesai = sig
   val cutoff : 'a value -> equal:('a -> 'a -> bool) -> 'a value
   (** The runtime will recompute a node if any of its dependencies change. But
       sometimes, you may want to consider two contained values to be "close
-      enough" and cut off recomputation. You can do that by passing a custom
-      equality function to [cutoff]. *)
+      enough" and skip re-computation of the dependent values. You can do that
+      by passing a custom equality function to [cutoff]. *)
 
   val state :
     ?equal:('model -> 'model -> bool) ->
@@ -113,13 +121,7 @@ module type Bonesai = sig
 
       You must provide a "starting" value for the state.
 
-      [?equal] (default [phys_equal]) is used by some combinators to reduce
-      memory usage. (E.g. [assoc] and [match%sub] may determine that they can
-      store a reference to only the default model rather than the current
-      model.) *)
-
-  (* TODO the reference to assoc and match%sub seems relevant. Can/should I do
-     the same? *)
+      [?equal] (default [phys_equal]) can be used to integrate a {!cutoff}. *)
 
   val state_opt :
     ?equal:('model -> 'model -> bool) ->
@@ -162,21 +164,22 @@ module type Bonesai = sig
         provided to all state-machine's [apply_action] functions. It can be used
         to do a variety of things that are only legal inside of [apply_action]:
 
-        1. Access the application time source directly. This is most likely
-        useful to read the current time or sleep for some time span (TODO)
-
-        2. Turn the state-machine's action type into a task that can be
+        1. Turn the state-machine's action type into a task that can be
         scheduled.
 
-        3. Directly schedule tasks for execution. *)
+        2. Directly schedule tasks for execution. *)
 
     type ('action, 'response) t
 
     val to_task : ('action, 'response) t -> 'action -> 'response task
     val schedule : _ t -> unit task -> unit
 
-    (* TODO *)
-    (* val time_source : _ t -> Time_source.t *)
+    (* TODO Janestreet's Bonsai exposes a time source here.
+
+        3. Access the application time source directly. This is most likely
+        useful to read the current time or sleep for some time span
+
+       val time_source : _ t -> Time_source.t *)
   end
 
   val state_machine :
@@ -189,10 +192,9 @@ module type Bonesai = sig
   (** [state_machine] allows you to build a state machine whose state is
       initialized to whatever you pass to [default_model], and the state machine
       transitions states using the [apply_action] function. The current state
-      and a function for turning an action into a schedulable task are returned.
+      and a function for turning an action into a task are returned.
 
-      [?equal] does the same thing that it does for [state], go read those docs
-      for more. *)
+      [?equal] works like the argument to {!state}. *)
 
   val state_machine_with_input :
     ?equal:('model -> 'model -> bool) ->
@@ -241,11 +243,12 @@ module type Bonesai = sig
       value of a [value] inside its [recv] function just like
       [state_machine_with_input] *)
 
-  (* TODO Janestreet Bonsai has another actor that allows to specify the
+  (* TODO Janestreet's Bonsai has another actor that allows to specify the
      return type per action using GADTs. *)
 
   module BList : sig
-    (** Incremental list data structure; wrapper around {!ReactiveData.RList} *)
+    (** Incremental list data structure; wrapper around {!ReactiveData.RList}.
+    *)
 
     (** Patch operation on lists. All operations are of linear complexity *)
     type 'a p =
@@ -278,7 +281,7 @@ module type Bonesai = sig
   end
 
   module BMap (M : Map.S) : sig
-    (** Incremental Map data structure; wrapper around {!ReactiveData.RMap} *)
+    (** Incremental Map data structure; wrapper around {!ReactiveData.RMap}. *)
 
     type 'a patch = [ `Add of M.key * 'a | `Del of M.key ] list
 
