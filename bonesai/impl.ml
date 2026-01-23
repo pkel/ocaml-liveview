@@ -91,15 +91,10 @@ module Make (Task : Task) (Extra : Extra) :
     let schedule _app = Task.execute
   end
 
-  (* TODO eliminate these two helpers, they harm readability *)
-
-  let signal s = s
-  let constant x = return x
-
   let state ?(equal = ( == )) start _graph =
-    let s, setter = React.S.create ~eq:equal start in
+    let signal, setter = React.S.create ~eq:equal start in
     let set_task new_model = Task.create (fun () -> setter new_model) in
-    (signal s, constant set_task)
+    (signal, React.S.const set_task)
 
   let state_opt ?(equal = ( == )) ?default_model _graph =
     let equal a b =
@@ -108,22 +103,22 @@ module Make (Task : Task) (Extra : Extra) :
     state ~equal default_model _graph
 
   let state' ?(equal = ( == )) start _graph =
-    let s, setter = React.S.create ~eq:equal start in
+    let signal, setter = React.S.create ~eq:equal start in
     let set_task update =
       Task.create (fun () ->
-          let old_model = React.S.value s in
+          let old_model = React.S.value signal in
           setter (update old_model))
     in
-    (signal s, constant set_task)
+    (signal, React.S.const set_task)
 
   let toggle ~default_model _graph =
-    let s, setter = React.S.create ~eq:( == ) default_model in
+    let signal, setter = React.S.create ~eq:( == ) default_model in
     let toggle_task =
       Task.create (fun () ->
-          let old_model = React.S.value s in
+          let old_model = React.S.value signal in
           setter (not old_model))
     in
-    (signal s, constant toggle_task)
+    (signal, React.S.const toggle_task)
 
   module Toggle = struct
     type t = {
@@ -134,18 +129,18 @@ module Make (Task : Task) (Extra : Extra) :
   end
 
   let toggle' ~default_model _graph =
-    let s, setter = React.S.create ~eq:( == ) default_model in
+    let signal, setter = React.S.create ~eq:( == ) default_model in
     let set_task new_model = Task.create (fun () -> setter new_model) in
     let toggle_task =
       Task.create (fun () ->
-          let old_model = React.S.value s in
+          let old_model = React.S.value signal in
           setter (not old_model))
     in
     Toggle.
       {
-        state = signal s;
-        set_state = constant set_task;
-        toggle = constant toggle_task;
+        state = signal;
+        set_state = React.S.const set_task;
+        toggle = React.S.const toggle_task;
       }
 
   module Apply_action_context = struct
@@ -160,56 +155,56 @@ module Make (Task : Task) (Extra : Extra) :
 
   let state_machine ?(equal = ( == )) ~default_model ~apply_action _graph =
     let open Apply_action_context in
-    let s, setter = React.S.create ~eq:equal default_model in
+    let signal, setter = React.S.create ~eq:equal default_model in
     let rec ctx = { to_task; schedule = Task.execute }
     and to_task action =
       Task.create (fun () ->
-          let old_model = React.S.value s in
+          let old_model = React.S.value signal in
           let new_model = apply_action ctx old_model action in
           setter new_model)
     in
-    (signal s, constant to_task)
+    (signal, React.S.const to_task)
 
   let actor ?(equal = ( == )) ~default_model ~recv _graph =
     let open Apply_action_context in
-    let s, setter = React.S.create ~eq:equal default_model in
+    let signal, setter = React.S.create ~eq:equal default_model in
     let rec ctx = { to_task; schedule = Task.execute }
     and to_task action =
       Task.create (fun () ->
-          let old_model = React.S.value s in
+          let old_model = React.S.value signal in
           let new_model, return = recv ctx old_model action in
           let () = setter new_model in
           return)
     in
-    (signal s, constant to_task)
+    (signal, React.S.const to_task)
 
   let state_machine_with_input ?(equal = ( == )) ~default_model ~apply_action
       input _graph =
     let open Apply_action_context in
-    let s, setter = React.S.create ~eq:equal default_model in
+    let signal, setter = React.S.create ~eq:equal default_model in
     let rec ctx = { to_task; schedule = Task.execute }
     and to_task action =
       Task.create (fun () ->
-          let old_model = React.S.value s in
+          let old_model = React.S.value signal in
           let input = React.S.value input in
           let new_model = apply_action ctx input old_model action in
           setter new_model)
     in
-    (signal s, constant to_task)
+    (signal, React.S.const to_task)
 
   let actor_with_input ?(equal = ( == )) ~default_model ~recv input _graph =
     let open Apply_action_context in
-    let s, setter = React.S.create ~eq:equal default_model in
+    let signal, setter = React.S.create ~eq:equal default_model in
     let rec ctx = { to_task; schedule = Task.execute }
     and to_task action =
       Task.create (fun () ->
-          let old_model = React.S.value s in
+          let old_model = React.S.value signal in
           let input = React.S.value input in
           let new_model, return = recv ctx input old_model action in
           let () = setter new_model in
           return)
     in
-    (signal s, constant to_task)
+    (signal, React.S.const to_task)
 
   module BData (RData : ReactiveData.S) = struct
     type 'a patch = 'a RData.patch
@@ -223,11 +218,9 @@ module Make (Task : Task) (Extra : Extra) :
         | Patch p -> Task.create (fun () -> RData.patch handle p)
         | Set d -> Task.create (fun () -> RData.set handle d)
       in
-      (data, constant to_task)
+      (data, React.S.const to_task)
 
-    let value data =
-      (* TODO this would've an ~eq argument which we do not expose *)
-      signal (RData.signal data)
+    let value data = RData.signal data
   end
 
   module BList = struct
