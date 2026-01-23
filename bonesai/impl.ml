@@ -91,18 +91,18 @@ module Make (Task : Task) (Extra : Extra) :
     let schedule _app = Task.execute
   end
 
-  let state ?(equal = ( == )) start _graph =
+  let state ?(equal = phys_equal) start _graph =
     let signal, setter = React.S.create ~eq:equal start in
     let set_task new_model = Task.create (fun () -> setter new_model) in
     (signal, React.S.const set_task)
 
-  let state_opt ?(equal = ( == )) ?default_model _graph =
+  let state_opt ?(equal = phys_equal) ?default_model _graph =
     let equal a b =
       match (a, b) with Some a, Some b -> equal a b | _ -> false
     in
     state ~equal default_model _graph
 
-  let state' ?(equal = ( == )) start _graph =
+  let state' ?(equal = phys_equal) start _graph =
     let signal, setter = React.S.create ~eq:equal start in
     let set_task update =
       Task.create (fun () ->
@@ -112,7 +112,7 @@ module Make (Task : Task) (Extra : Extra) :
     (signal, React.S.const set_task)
 
   let toggle ~default_model _graph =
-    let signal, setter = React.S.create ~eq:( == ) default_model in
+    let signal, setter = React.S.create ~eq:phys_equal default_model in
     let toggle_task =
       Task.create (fun () ->
           let old_model = React.S.value signal in
@@ -129,7 +129,7 @@ module Make (Task : Task) (Extra : Extra) :
   end
 
   let toggle' ~default_model _graph =
-    let signal, setter = React.S.create ~eq:( == ) default_model in
+    let signal, setter = React.S.create ~eq:phys_equal default_model in
     let set_task new_model = Task.create (fun () -> setter new_model) in
     let toggle_task =
       Task.create (fun () ->
@@ -153,7 +153,7 @@ module Make (Task : Task) (Extra : Extra) :
     let schedule t = t.schedule
   end
 
-  let state_machine ?(equal = ( == )) ~default_model ~apply_action _graph =
+  let state_machine ?(equal = phys_equal) ~default_model ~apply_action _graph =
     let open Apply_action_context in
     let signal, setter = React.S.create ~eq:equal default_model in
     let rec ctx = { to_task; schedule = Task.execute }
@@ -165,7 +165,7 @@ module Make (Task : Task) (Extra : Extra) :
     in
     (signal, React.S.const to_task)
 
-  let actor ?(equal = ( == )) ~default_model ~recv _graph =
+  let actor ?(equal = phys_equal) ~default_model ~recv _graph =
     let open Apply_action_context in
     let signal, setter = React.S.create ~eq:equal default_model in
     let rec ctx = { to_task; schedule = Task.execute }
@@ -178,8 +178,8 @@ module Make (Task : Task) (Extra : Extra) :
     in
     (signal, React.S.const to_task)
 
-  let state_machine_with_input ?(equal = ( == )) ~default_model ~apply_action
-      input _graph =
+  let state_machine_with_input ?(equal = phys_equal) ~default_model
+      ~apply_action input _graph =
     let open Apply_action_context in
     let signal, setter = React.S.create ~eq:equal default_model in
     let rec ctx = { to_task; schedule = Task.execute }
@@ -192,7 +192,7 @@ module Make (Task : Task) (Extra : Extra) :
     in
     (signal, React.S.const to_task)
 
-  let actor_with_input ?(equal = ( == )) ~default_model ~recv input _graph =
+  let actor_with_input ?(equal = phys_equal) ~default_model ~recv input _graph =
     let open Apply_action_context in
     let signal, setter = React.S.create ~eq:equal default_model in
     let rec ctx = { to_task; schedule = Task.execute }
