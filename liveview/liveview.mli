@@ -10,6 +10,12 @@ type 'a event_handler
 val event_handler :
   'action to_task value -> 'action -> graph -> unit event_handler value
 
+(* TODO can this be as follows?
+
+   val event_handler: unit task value -> graph -> unit event_handler value
+   val string_event_handler: (string -> unit task) value -> graph -> string event_handler value
+*)
+
 val string_event_handler :
   'action to_task value ->
   (string -> 'action) ->

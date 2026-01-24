@@ -36,7 +36,7 @@ module type Types = sig
       later at runtime. *)
 end
 
-module type Data = sig
+module type Data0 = sig
   (** Shared signature for incremental data structures; adapted from
       {!ReactiveData.S}. *)
 
@@ -88,6 +88,9 @@ module type Bonesai = sig
      redundant evaluations whenever computation inputs are constant. *)
 
   include Types
+
+  val do_nothing : unit task
+  (** the empty task *)
 
   val return : 'a -> 'a value
   (** [return] produces a [value] whose inner value is constant. *)
@@ -246,7 +249,25 @@ module type Bonesai = sig
   (* TODO Janestreet's Bonsai has another actor that allows to specify the
      return type per action using GADTs. *)
 
-  module BList : sig
+  (* TODO val wrap : ...
+  val wrap
+    :  default_model:'model
+    -> apply_action:
+         (('action, unit) Apply_action_context.t
+          -> 'result
+          -> 'model
+          -> 'action
+          -> 'model)
+    -> f:('model value -> ('action -> unit task) value -> graph -> 'result value)
+    -> graph
+    -> 'result value
+    (** [wrap] wraps a state machine (built using [f]) and provides a model and
+        injection function that the wrapped component can use. Especially of
+        note is that the [apply_action] for this outer-model has access to the
+        result value of the computation being wrapped. *)
+  *)
+
+  module List0 : sig
     (** Incremental list data structure; wrapper around {!ReactiveData.RList}.
     *)
 
@@ -270,7 +291,7 @@ module type Bonesai = sig
         of the list. Arbitrary patches are slower, requiring O(m*n). *)
 
     include
-      Data
+      Data0
         with type 'a patch := 'a p list
          and type 'a raw := 'a list
          and type graph := graph
@@ -280,13 +301,13 @@ module type Bonesai = sig
     (* TODO much stuff of RList is missing *)
   end
 
-  module BMap (M : Map.S) : sig
+  module Map0 (M : Map.S) : sig
     (** Incremental Map data structure; wrapper around {!ReactiveData.RMap}. *)
 
     type 'a patch = [ `Add of M.key * 'a | `Del of M.key ] list
 
     include
-      Data
+      Data0
         with type 'a patch := 'a patch
          and type 'a raw := 'a M.t
          and type graph := graph
@@ -295,4 +316,38 @@ module type Bonesai = sig
 
     val filter : (M.key -> 'a -> bool) -> 'a data -> 'a data
   end
+
+  (*
+  module Map1 (M : Map.S) : sig
+    (** Like {!Map0} but adjusted to allocate a new reactive {'a value} (=
+      stateful computation) for each element. This allows dynamic modifications
+      of the compute graph at runtime, in a controlled manner. *)
+
+    type 'a t
+    (** Incremental version of the data container *)
+
+    type 'a action =
+      | Set of M.key * (graph -> 'a value) (** Creates a new stateful computation and makes it available under the given key. De-allocates existing computation with the same key. *)
+      | Del of M.key (** De-allocates existing computation with the given key. *)
+
+    (* TODO what about errors like deleting an absent key? Also in Data0! Maybe add result type and return 'a action -> result task. But what can the programmer do if not ignoring the result? *)
+
+    val set: M.key -> (graph -> 'a value) -> 'a action
+    val del: M.key -> 'a action
+
+    val create : graph -> 'a t * ('a action -> unit task) value
+    (** Create a new, empty map. *)
+
+    val value : 'a t -> 'a M.t value
+    (** Fires whenever elements are set, deleted, or updated. *)
+
+    val fold : 'a t -> ('a -> 'acc -> 'acc) -> 'acc value -> 'acc value
+    (** Fires whenever elements are set, deleted, or updated. *)
+
+    (* TODO can we have a variant of fold that only fires on set/del, assuming
+       that the updates are handled in another subgraph? I think yes, just
+       ensure that the element Bonesai values have an appropriate cutoff; like
+       Liveview components already have. *)
+  end
+  *)
 end

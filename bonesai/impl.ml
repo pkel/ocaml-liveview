@@ -58,6 +58,7 @@ module Make (Task : Task) (Extra : Extra) :
 
   type 'a value = 'a React.signal
 
+  let do_nothing = Task.create (fun () -> ())
   let phys_equal = ( == )
   let return = React.S.const
   let map a ~f = React.S.l1 ~eq:phys_equal f a
@@ -206,7 +207,7 @@ module Make (Task : Task) (Extra : Extra) :
     in
     (signal, React.S.const to_task)
 
-  module BData (RData : ReactiveData.S) = struct
+  module Data0 (RData : ReactiveData.S) = struct
     type 'a patch = 'a RData.patch
     type 'a raw = 'a RData.data
     type 'a action = Patch of 'a patch | Set of 'a raw
@@ -223,7 +224,7 @@ module Make (Task : Task) (Extra : Extra) :
     let value data = RData.signal data
   end
 
-  module BList = struct
+  module List0 = struct
     module RList = ReactiveData.RList
 
     type 'a p = 'a RList.p =
@@ -232,12 +233,12 @@ module Make (Task : Task) (Extra : Extra) :
       | U of int * 'a
       | X of int * int
 
-    include BData (RList)
+    include Data0 (RList)
   end
 
-  module BMap (M : Map.S) = struct
+  module Map0 (M : Map.S) = struct
     module RMap = ReactiveData.RMap (M)
-    include BData (RMap)
+    include Data0 (RMap)
 
     let filter = RMap.filter
   end
