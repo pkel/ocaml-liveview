@@ -317,26 +317,33 @@ module type Bonesai = sig
     val filter : (M.key -> 'a -> bool) -> 'a data -> 'a data
   end
 
-  (*
   module Map1 (M : Map.S) : sig
-    (** Like {!Map0} but adjusted to allocate a new reactive {'a value} (=
-      stateful computation) for each element. This allows dynamic modifications
-      of the compute graph at runtime, in a controlled manner. *)
+    (** Like {!Map0} but adjusted to allocate a new reactive {!'a value} (=
+        stateful computation) for each element. This allows dynamic
+        modifications of the compute graph at runtime, in a controlled manner.
+    *)
 
     type 'a t
     (** Incremental version of the data container *)
 
     type 'a action =
-      | Set of M.key * (graph -> 'a value) (** Creates a new stateful computation and makes it available under the given key. De-allocates existing computation with the same key. *)
-      | Del of M.key (** De-allocates existing computation with the given key. *)
+      | Set of M.key * (graph -> 'a value)
+          (** Creates a new stateful computation and makes it available under
+              the given key. De-allocates existing computation with the same
+              key. *)
+      | Del of M.key
+          (** De-allocates existing computation with the given key. *)
 
     (* TODO what about errors like deleting an absent key? Also in Data0! Maybe add result type and return 'a action -> result task. But what can the programmer do if not ignoring the result? *)
 
-    val set: M.key -> (graph -> 'a value) -> 'a action
-    val del: M.key -> 'a action
+    val set : M.key -> (graph -> 'a value) -> 'a action
+    val del : M.key -> 'a action
 
-    val create : graph -> 'a t * ('a action -> unit task) value
-    (** Create a new, empty map. *)
+    val create :
+      start:(graph -> 'a value) M.t ->
+      graph ->
+      'a t * ('a action -> unit task) value
+    (** Create a new map, initialized with the bindings of [start]. *)
 
     val value : 'a t -> 'a M.t value
     (** Fires whenever elements are set, deleted, or updated. *)
@@ -349,5 +356,4 @@ module type Bonesai = sig
        ensure that the element Bonesai values have an appropriate cutoff; like
        Liveview components already have. *)
   end
-  *)
 end

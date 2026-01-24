@@ -307,7 +307,7 @@ module Dream_websocket = struct
       let json = to_client m in
       Dream.send ws json
 
-    let send_info ws m = send ws (Info m)
+    (* let send_info ws m = send ws (Info m) *)
     let send_updates ws x = send ws (Updates x)
     let send_error ws m = send ws (Error m)
   end
@@ -329,35 +329,40 @@ module Dream_websocket = struct
     val create : unit -> t * (id:string -> packed_renderer -> unit)
     val send : t -> Dream.websocket -> unit Lwt.t
   end = struct
-    type e = { mutable html : string; mutable cnt : int }
-    type t = (string, e) Hashtbl.t
+    type u = { id : string; html : string } (* single update *)
+    type t = u list ref (* accumulator *)
+
+    (* TODO I had a mechanism here to catch redundant updates to the same
+       component. Not sure whether this can happen at all. Or is always a
+       programmer error? Is it safe to only transfer the last update?
+
+       It now turns out that the update order is relevant. E.g. when
+       adding a dynamic component of an assoc, the parent must be updated
+       before the child. Otherwise the client tries to patch a component that
+       does not exist yet.
+
+       We handle this by reverting the order. Not sure whether that makes
+       sense. An alternative solution might be to delay updates to missing
+       components until the parent is updated. But the client is not aware of
+       the dependencies. So it's probably better to send an order that works.
+
+       However, reverting the order was incompatible with the old mechanism to
+       remove redundant updates as this one made the order indeterministic
+       (through a hash table).
+       *)
 
     let create () =
-      let ht = Hashtbl.create 7 in
+      let t = ref [] in
       let fn ~id (Renderer f) =
         let dom = f Update in
         let html = Format.asprintf "%a" (Html.pp_elt ()) dom in
-        match Hashtbl.find_opt ht id with
-        | Some e ->
-            e.cnt <- e.cnt + 1;
-            e.html <- html
-        | None -> Hashtbl.add ht id { cnt = 1; html }
+        t := { id; html } :: !t
       in
-      (ht, fn)
+      (t, fn)
 
     let send t socket =
-      let lst = Hashtbl.fold (fun id e acc -> (id, e.html) :: acc) t [] in
-      let%lwt () = Message.send_updates socket lst in
-      (* debugging output to client *)
-      Lwt_stream.iter_s
-        (fun (id, e) ->
-          (* TODO think hard, whether redundant renders are a programming error *)
-          if e.cnt > 1 then
-            Message.send_info socket
-              (Printf.sprintf "caught %i redundant updates of component %s"
-                 e.cnt id)
-          else Lwt.return_unit)
-        (Hashtbl.to_seq t |> Lwt_stream.of_seq)
+      let lst = List.map (fun u -> (u.id, u.html)) !t in
+      Message.send_updates socket lst
   end
 
   let run_task app task =
@@ -369,7 +374,7 @@ module Dream_websocket = struct
     in
     with_update_handler handler f ()
 
-  let run app websocket =
+  let run ?slowdown app websocket =
     let app, ctx = without_update_handler Bonesai.Runtime.compile app in
     let%lwt () =
       (* initialization: update entire DOM recursively. Sets component ids and js event handlers *)
@@ -401,9 +406,10 @@ module Dream_websocket = struct
                       loop ()
                   | Some task ->
                       let%lwt () =
-                        Lwt_unix.sleep 0.5
-                        (* add latency to test tolerance *)
-                        (* TODO remove before release *)
+                        (* add latency for testing *)
+                        match slowdown with
+                        | Some s -> Lwt_unix.sleep s
+                        | None -> Lwt.return_unit
                       in
                       let updates =
                         Dream.log "%s: apply" id;
@@ -468,7 +474,7 @@ module Dream_websocket = struct
     let str = Format.asprintf "%a" (Html.pp ()) html in
     Dream.html str
 
-  let get_main app req =
+  let get_main ?slowdown app req =
     match Dream.header req "Upgrade" with
     | Some "websocket" -> begin
         match Dream.query req "csrf_token" with
@@ -480,7 +486,7 @@ module Dream_websocket = struct
             | `Invalid -> Dream.empty `Unauthorized
             | `Ok ->
                 let app = app req in
-                Dream.websocket (run app))
+                Dream.websocket (run ?slowdown app))
       end
     | _ ->
         let csrf_token = Dream.csrf_token req in
@@ -495,11 +501,11 @@ module Dream_websocket = struct
     | None -> Dream.empty (`Status 500)
     | Some content -> Dream.respond ~headers:[ ("Content-Type", type_) ] content
 
-  let handler app =
+  let handler ?slowdown app =
     let open Dream in
     router
       [
-        get "/" (get_main app);
+        get "/" (get_main ?slowdown app);
         get "/favicon.ico" (get_crunch "image/x-icon" "favicon.ico");
         get "/idiomorph.js" (get_crunch "text/javascript" "idiomorph.js");
         get "/liveview.js" (get_crunch "text/javascript" "liveview.js");

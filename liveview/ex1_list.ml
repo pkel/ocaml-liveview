@@ -6,8 +6,6 @@ let main _req graph =
   (* TODO augment example to allow deletion of specific elements & reordering.
 
      We'll need dynamic event handlers for that. One delete event per list item.
-     So this is as complicated as the below todo, to have state machines in the
-     list items.
    *)
   let list, to_task = List0.create ~start:(List.init 3 Fun.id) graph in
   let list = List0.value list in

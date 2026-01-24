@@ -242,4 +242,39 @@ module Make (Task : Task) (Extra : Extra) :
 
     let filter = RMap.filter
   end
+
+  module Map1 (M : Map.S) = struct
+    module RMap = ReactiveData.RMap (M)
+
+    type 'a t = 'a value RMap.t
+
+    let value t =
+      (* observe all element signals *)
+      (* TODO this fires for set/del actions but not element updates *)
+      map ~f:(M.map React.S.value) (RMap.signal ~eq:phys_equal t)
+
+    type 'a action = Set of M.key * (graph -> 'a value) | Del of M.key
+
+    let set k v = Set (k, v)
+    let del k = Del k
+
+    let create ~start graph =
+      let start = M.map (fun bonesai -> bonesai graph) start in
+      let data, handle = RMap.create start in
+      let to_task = function
+        | Set (key, bonesai) ->
+            (* TODO initialization of the component/signal triggers an liveview update, of
+               a component that does not exist yet. A quick workaround is to revert the list
+               of updates before sending them to the client. Is there a better way?
+               Maybe skip the first render, but do an recursive (1 level)
+               render of new sub-components on the parent?
+               *)
+            Task.create (fun () ->
+                RMap.patch handle [ `Add (key, bonesai graph) ])
+        | Del key -> Task.create (fun () -> RMap.patch handle [ `Del key ])
+      in
+      (data, React.S.const to_task)
+
+    let fold _graph = assert false (* TODO *)
+  end
 end
