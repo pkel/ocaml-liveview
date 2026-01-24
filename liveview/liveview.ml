@@ -97,6 +97,13 @@ let event_handler to_task action =
 
 let string_event_handler to_task = event_handler' to_task pack_string
 
+(*
+val event_handler': unit task value -> graph -> unit event_handler value
+let event_handler' task =
+  let to_task = Bonesai.map ~f:(fun task () -> task) task in
+  event_handler to_task ()
+*)
+
 module Render : sig
   (** algebraic effect magic to eliminate context argument in the Html API *)
 

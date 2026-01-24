@@ -10,17 +10,31 @@ type 'a event_handler
 val event_handler :
   'action to_task value -> 'action -> graph -> unit event_handler value
 
-(* TODO can this be as follows?
-
-   val event_handler: unit task value -> graph -> unit event_handler value
-   val string_event_handler: (string -> unit task) value -> graph -> string event_handler value
-*)
-
 val string_event_handler :
   'action to_task value ->
   (string -> 'action) ->
   graph ->
   string event_handler value
+
+(* Note, one might wonder whether the event handler functions could be as follows:
+
+   val event_handler: unit task value -> graph -> unit event_handler value
+   val string_event_handler: (string -> unit task) value -> graph -> string event_handler value
+
+   Yes they could, but this causes overhead for the users. What currently works like this:
+
+   let state, to_task =
+     Bonesai.state_machine graph ~default_model:start ~apply_action
+   in
+   let incr = event_handler to_task Incr graph in
+
+   would become
+
+   let state, to_task =
+     Bonesai.state_machine graph ~default_model:start ~apply_action
+   in
+   let incr = event_handler (Bonesai.map ~f:(fun to_task -> to_task Incr) to_task) graph in
+*)
 
 type 'a component
 
