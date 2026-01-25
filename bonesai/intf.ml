@@ -323,6 +323,24 @@ module type Bonesai = sig
         modifications of the compute graph at runtime, in a controlled manner.
     *)
 
+    (* Looking at ReScript/React, it seems having unique keys for each element
+       is a standard React requirement, when rendering maps/assocs/lists of
+       components.
+
+       https://rescript-lang.org/docs/react/arrays-and-keys
+
+       Confirmed in React Docs. JSX element directly inside a map() call always
+       need keys.
+
+       https://react.dev/learn/rendering-lists
+
+       JSX is what I do in the render functions in liveview. Is should this
+       Map/Assoc API be part of liveview, and only allow components, not
+       arbitrary values? Or provide a helper function that takes a ['el
+       component Map1.t] and a container (put the ['el] into a list/div/etc)
+       and then does the rendering for us.
+    *)
+
     type 'a t
     (** Incremental version of the data container *)
 
