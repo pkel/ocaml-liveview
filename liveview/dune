@@ -18,9 +18,18 @@
  (action
   (run curl -Ls "https://unpkg.com/idiomorph@0.7.4" -o idiomorph.js)))
 
+(library
+ (name ppx)
+ (public_name liveview.ppx)
+ (modules ppx)
+ (kind ppx_rewriter)
+ (libraries ppxlib)
+ (preprocess
+  (pps ppxlib.metaquot)))
+
 (executables
  (names ex0_basic ex1_list ex2_assoc)
  (modules ex0_basic ex1_list ex2_assoc)
  (libraries liveview liveview.bonesai dream tyxml ppx_yojson_conv_lib)
  (preprocess
-  (pps lwt_ppx)))
+  (pps lwt_ppx liveview.ppx)))

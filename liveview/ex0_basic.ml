@@ -14,17 +14,25 @@ module Counter = struct
     and decr = event_handler to_task Decr graph
     and render state incr decr =
       let open Html in
-      let button label_ action =
-        button ~a:[ a_onclick action ] [ txt label_ ]
-      in
-      [ button "-1" decr; txt (Int.to_string state); button "+1" incr ]
+      [
+        button ~a:[ a_onclick incr ] [ txt "-1" ];
+        txt (Int.to_string state);
+        button ~a:[ a_onclick decr ] [ txt "+1" ];
+      ]
     in
-    (* TODO can we do some let+ and+ in magic here to avoid all the arguments?
-       One thing that would work for certain is PPX. And in a separate step,
-       such a PPX could mark all locations, where a value (not a handler) is
-       injected into the HTML. This would allow to compile HTML templates and
-       update the values individually like it happens in liveview. *)
     Component.(arg3 div) state incr decr render graph
+
+  let component' ~start graph =
+    let state, to_task =
+      Bonesai.state_machine graph ~default_model:start ~apply_action
+    in
+    [%component
+      div
+        [
+          button ~a:[ a_onclick [%a Decr] ] [ txt "-1" ];
+          txt (Int.to_string [%v state]);
+          button ~a:[ a_onclick [%a Incr] ] [ txt "+1" ];
+        ]]
 end
 
 module Input = struct
