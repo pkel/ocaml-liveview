@@ -10,17 +10,13 @@ module Counter = struct
     let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let incr = event_handler to_task Incr graph
-    and decr = event_handler to_task Decr graph
-    and render state incr decr =
-      let open Html in
-      [
-        button ~a:[ a_onclick incr ] [ txt "-1" ];
-        txt (Int.to_string state);
-        button ~a:[ a_onclick decr ] [ txt "+1" ];
-      ]
-    in
-    Component.(arg3 div) state incr decr render graph
+    [%component
+      div
+        [
+          button ~a:[ a_onclick [%a Decr] ] [ txt "-1" ];
+          txt (Int.to_string [%v state]);
+          button ~a:[ a_onclick [%a Incr] ] [ txt "+1" ];
+        ]]
 end
 
 module Input = struct
@@ -35,39 +31,40 @@ module Input = struct
     let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let update = string_event_handler to_task update graph
-    and render state update =
-      let open Html in
-      [
-        form
-          [
-            input ~a:[ a_input_type `Text; a_oninput update; a_value state ] ();
-          ];
-        txt state;
-      ]
-    in
-    Component.(arg2 div) state update render graph
+    [%component
+      div (* TODO I might be cool to add attributes with ~a here *)
+        [
+          form (* TODO I think form could be a top-level component type *)
+            [
+              input
+                ~a:
+                  [
+                    a_input_type `Text;
+                    a_oninput [%astring update];
+                    a_value [%v state];
+                  ]
+                ();
+            ];
+          txt [%v state];
+        ]]
 end
 
 let main ~n1 ~n2 ~n3 ~s graph =
-  (* TODO demonstrate how to use state across components *)
   let one = Counter.component ~start:n1 graph
   and two = Counter.component ~start:n2 graph
   and three = Counter.component ~start:n3 graph
-  and four = Input.component ~start:s graph
-  and render one two three four =
-    let open Html in
-    [
-      sub_component one;
-      hr ();
-      sub_component two;
-      hr ();
-      sub_component three;
-      hr ();
-      sub_component four;
-    ]
-  in
-  Component.(arg4 div) one two three four render graph
+  and four = Input.component ~start:s graph in
+  [%component
+    div
+      [
+        sub_component [%v one];
+        hr ();
+        sub_component [%v two];
+        hr ();
+        sub_component [%v three];
+        hr ();
+        sub_component [%v four];
+      ]]
 
 (* read arguments from Dream request *)
 

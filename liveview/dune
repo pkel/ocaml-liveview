@@ -28,8 +28,8 @@
   (pps ppxlib.metaquot)))
 
 (executables
- (names ex0_basic ex1_list ex2_assoc)
- (modules ex0_basic ex1_list ex2_assoc)
+ (names ex0_basic ex0_basic_ppx ex1_list ex2_assoc)
+ (modules ex0_basic ex0_basic_ppx ex1_list ex2_assoc)
  (libraries liveview liveview.bonesai dream tyxml ppx_yojson_conv_lib)
  (preprocess
   (pps lwt_ppx liveview.ppx)))

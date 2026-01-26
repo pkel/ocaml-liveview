@@ -20,26 +20,19 @@ let main _req graph =
         if List.length list > 0 then to_task List0.(Patch [ R 0 ])
         else Bonesai.do_nothing
   in
-  let add = event_handler to_task `Add graph
-  and del = event_handler to_task `Del graph
-  and render list add delete =
-    let size = List.length list in
-    let open Html in
-    let button ?(disable = false) label_ action =
-      button
-        ~a:(a_onclick action :: (if disable then [ a_disabled () ] else []))
-        [ txt label_ ]
-    in
-    [
-      button ~disable:(size < 1) "-1" delete;
-      txt (Int.to_string size);
-      button "+1" add;
-    ]
-    @ List.concat_map
-        (fun i -> [ br (); txt (Printf.sprintf "item %d" i) ])
-        list
-  in
-  Component.(arg3 div) list add del render graph
+  let size = Bonesai.map ~f:List.length list in
+  [%component
+    div
+      ([
+         button
+           ~a:[ (if [%v size] < 1 then a_disabled () else a_onclick [%a `Del]) ]
+           [ txt "+1" ];
+         txt (Int.to_string [%v size]);
+         button ~a:[ a_onclick [%a `Add] ] [ txt "+1" ];
+       ]
+      @ List.concat_map
+          (fun i -> [ br (); txt (Printf.sprintf "item %d" i) ])
+          [%v list])]
 
 (* TODO add API that allows to have state machines / components in the incremental container *)
 
