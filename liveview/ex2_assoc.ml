@@ -15,18 +15,23 @@ module Input = struct
     let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
-    let update = string_event_handler to_task update graph
-    and render state update =
-      let open Html in
-      [
-        form
+    [%component
+      div
+        Html.
           [
-            input ~a:[ a_input_type `Text; a_oninput update; a_value state ] ();
-          ];
-        txt ("value: " ^ state);
-      ]
-    in
-    Component.(arg2 div) state update render graph
+            form
+              [
+                input
+                  ~a:
+                    [
+                      a_input_type `Text;
+                      a_oninput [%astring update];
+                      a_value [%v state];
+                    ]
+                  ();
+              ];
+            txt ("value: " ^ [%v state]);
+          ]]
 end
 
 let main _req graph =
@@ -58,15 +63,14 @@ let main _req graph =
         | None -> Bonesai.do_nothing
         | Some _ -> to_task BIntMap.(Del key))
   in
-  let add = event_handler to_task `Add graph
-  and render map add =
-    Html.[ button ~a:[ a_onclick add ] [ txt "new input" ] ]
-    @ (IntMap.bindings map
-      |> List.concat_map (fun (key, el) ->
-          Html.
-            [ hr (); txt (Printf.sprintf "map-key: %d" key); sub_component el ])
-      )
-  in
-  Component.(arg2 div) map add render graph
+  [%component
+    div
+      (Html.[ button ~a:[ a_onclick [%a `Add] ] [ txt "new input" ] ]
+      @ (IntMap.bindings [%v map]
+        |> List.concat_map (fun (key, el) ->
+            Html.
+              [
+                hr (); txt (Printf.sprintf "map-key: %d" key); sub_component el;
+              ])))]
 
 let () = Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream main

@@ -12,11 +12,12 @@ module Counter = struct
     in
     [%component
       div
-        [
-          button ~a:[ a_onclick [%a Decr] ] [ txt "-1" ];
-          txt (Int.to_string [%v state]);
-          button ~a:[ a_onclick [%a Incr] ] [ txt "+1" ];
-        ]]
+        Html.
+          [
+            button ~a:[ a_onclick [%a Decr] ] [ txt "-1" ];
+            txt (Int.to_string [%v state]);
+            button ~a:[ a_onclick [%a Incr] ] [ txt "+1" ];
+          ]]
 end
 
 module Input = struct
@@ -33,20 +34,21 @@ module Input = struct
     in
     [%component
       div (* TODO I might be cool to add attributes with ~a here *)
-        [
-          form (* TODO I think form could be a top-level component type *)
-            [
-              input
-                ~a:
-                  [
-                    a_input_type `Text;
-                    a_oninput [%astring update];
-                    a_value [%v state];
-                  ]
-                ();
-            ];
-          txt [%v state];
-        ]]
+        Html.
+          [
+            form (* TODO I think form could be a top-level component type *)
+              [
+                input
+                  ~a:
+                    [
+                      a_input_type `Text;
+                      a_oninput [%astring update];
+                      a_value [%v state];
+                    ]
+                  ();
+              ];
+            txt [%v state];
+          ]]
 end
 
 let main ~n1 ~n2 ~n3 ~s graph =
@@ -56,15 +58,16 @@ let main ~n1 ~n2 ~n3 ~s graph =
   and four = Input.component ~start:s graph in
   [%component
     div
-      [
-        sub_component [%v one];
-        hr ();
-        sub_component [%v two];
-        hr ();
-        sub_component [%v three];
-        hr ();
-        sub_component [%v four];
-      ]]
+      Html.
+        [
+          sub_component [%v one];
+          hr ();
+          sub_component [%v two];
+          hr ();
+          sub_component [%v three];
+          hr ();
+          sub_component [%v four];
+        ]]
 
 (* read arguments from Dream request *)
 

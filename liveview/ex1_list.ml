@@ -23,16 +23,18 @@ let main _req graph =
   let size = Bonesai.map ~f:List.length list in
   [%component
     div
-      ([
-         button
-           ~a:[ (if [%v size] < 1 then a_disabled () else a_onclick [%a `Del]) ]
-           [ txt "+1" ];
-         txt (Int.to_string [%v size]);
-         button ~a:[ a_onclick [%a `Add] ] [ txt "+1" ];
-       ]
-      @ List.concat_map
-          (fun i -> [ br (); txt (Printf.sprintf "item %d" i) ])
-          [%v list])]
+      Html.(
+        [
+          button
+            ~a:
+              [ (if [%v size] < 1 then a_disabled () else a_onclick [%a `Del]) ]
+            [ txt "+1" ];
+          txt (Int.to_string [%v size]);
+          button ~a:[ a_onclick [%a `Add] ] [ txt "+1" ];
+        ]
+        @ List.concat_map
+            (fun i -> [ br (); txt (Printf.sprintf "item %d" i) ])
+            [%v list])]
 
 (* TODO add API that allows to have state machines / components in the incremental container *)
 

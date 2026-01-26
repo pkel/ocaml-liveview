@@ -96,11 +96,7 @@ let expand_component ~ctxt container args =
         @ List.rev_map (fun (x, _, _) -> x) ctx.event_handlers
       in
       let render_fn_expr =
-        let body =
-          [%expr
-            let open Liveview.Html in
-            [%e elements]]
-        in
+        let body = [%expr [%e elements]] in
         match render_params with
         | [] -> body
         | params ->
