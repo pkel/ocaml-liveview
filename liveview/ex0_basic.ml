@@ -14,11 +14,9 @@ module Counter = struct
     and decr = event_handler to_task Decr graph
     and render state incr decr =
       let open Html in
-      [
-        button ~a:[ a_onclick incr ] [ txt "-1" ];
-        txt (Int.to_string state);
-        button ~a:[ a_onclick decr ] [ txt "+1" ];
-      ]
+      [ button ~a:[a_onclick incr] [txt "-1"]
+      ; txt (Int.to_string state)
+      ; button ~a:[a_onclick decr] [txt "+1"] ]
     in
     Component.(arg3 div) state incr decr render graph
 end
@@ -29,7 +27,8 @@ module Input = struct
   let update string = Update string
 
   let apply_action (_ : _ Bonesai.Apply_action_context.t) _old = function
-    | Update new_ -> new_
+    | Update new_ ->
+        new_
 
   let component ~start graph =
     let state, to_task =
@@ -38,13 +37,8 @@ module Input = struct
     let update = string_event_handler to_task update graph
     and render state update =
       let open Html in
-      [
-        form
-          [
-            input ~a:[ a_input_type `Text; a_oninput update; a_value state ] ();
-          ];
-        txt state;
-      ]
+      [ form [input ~a:[a_input_type `Text; a_oninput update; a_value state] ()]
+      ; txt state ]
     in
     Component.(arg2 div) state update render graph
 end
@@ -57,15 +51,13 @@ let main ~n1 ~n2 ~n3 ~s graph =
   and four = Input.component ~start:s graph
   and render one two three four =
     let open Html in
-    [
-      sub_component one;
-      hr ();
-      sub_component two;
-      hr ();
-      sub_component three;
-      hr ();
-      sub_component four;
-    ]
+    [ sub_component one
+    ; hr ()
+    ; sub_component two
+    ; hr ()
+    ; sub_component three
+    ; hr ()
+    ; sub_component four ]
   in
   Component.(arg4 div) one two three four render graph
 
@@ -76,18 +68,24 @@ let parse_query_s req =
 
 let parse_query_n1 req =
   match Dream.query req "n1" with
-  | None -> 42
-  | Some x -> ( match int_of_string_opt x with None -> 42 | Some x -> x)
+  | None ->
+      42
+  | Some x -> (
+    match int_of_string_opt x with None -> 42 | Some x -> x )
 
 let parse_query_n2 req =
   match Dream.query req "n2" with
-  | None -> 13
-  | Some x -> ( match int_of_string_opt x with None -> 13 | Some x -> x)
+  | None ->
+      13
+  | Some x -> (
+    match int_of_string_opt x with None -> 13 | Some x -> x )
 
 let parse_query_n3 req =
   match Dream.query req "n3" with
-  | None -> 21
-  | Some x -> ( match int_of_string_opt x with None -> 21 | Some x -> x)
+  | None ->
+      21
+  | Some x -> (
+    match int_of_string_opt x with None -> 21 | Some x -> x )
 
 let main req =
   let n1 = parse_query_n1 req

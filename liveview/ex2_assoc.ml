@@ -9,7 +9,8 @@ module Input = struct
   let update string = Update string
 
   let apply_action (_ : _ Bonesai.Apply_action_context.t) _old = function
-    | Update new_ -> new_
+    | Update new_ ->
+        new_
 
   let component ~start graph =
     let state, to_task =
@@ -18,20 +19,14 @@ module Input = struct
     [%component
       div
         Html.
-          [
-            form
-              [
-                input
+          [ form
+              [ input
                   ~a:
-                    [
-                      a_input_type `Text;
-                      a_oninput [%astring update];
-                      a_value [%v state];
-                    ]
-                  ();
-              ];
-            txt ("value: " ^ [%v state]);
-          ]]
+                    [ a_input_type `Text
+                    ; a_oninput [%astring update]
+                    ; a_value [%v state] ]
+                  () ]
+          ; txt ("value: " ^ [%v state]) ]]
 end
 
 let main _req graph =
@@ -44,7 +39,7 @@ let main _req graph =
     Input.component ~start
   in
   let bmap, to_task =
-    BIntMap.create ~start:(IntMap.of_list [ (1, input 1); (2, input 2) ]) graph
+    BIntMap.create ~start:(IntMap.of_list [(1, input 1); (2, input 2)]) graph
   in
   let map = BIntMap.value bmap in
   let to_task =
@@ -53,24 +48,27 @@ let main _req graph =
     | `Add ->
         let key =
           match IntMap.max_binding_opt map with
-          | None -> 1
-          | Some (key, _) -> key + 1
+          | None ->
+              1
+          | Some (key, _) ->
+              key + 1
         in
         to_task BIntMap.(Set (key, input key))
     | `Del key -> (
-        (* TODO handle invalid actions in Bonesai itself. Avoid exceptions *)
-        match IntMap.find_opt key map with
-        | None -> Bonesai.do_nothing
-        | Some _ -> to_task BIntMap.(Del key))
+      (* TODO handle invalid actions in Bonesai itself. Avoid exceptions *)
+      match IntMap.find_opt key map with
+      | None ->
+          Bonesai.do_nothing
+      | Some _ ->
+          to_task BIntMap.(Del key) )
   in
   [%component
     div
-      (Html.[ button ~a:[ a_onclick [%a `Add] ] [ txt "new input" ] ]
-      @ (IntMap.bindings [%v map]
+      ( Html.[button ~a:[a_onclick [%a `Add]] [txt "new input"]]
+      @ ( IntMap.bindings [%v map]
         |> List.concat_map (fun (key, el) ->
             Html.
-              [
-                hr (); txt (Printf.sprintf "map-key: %d" key); sub_component el;
-              ])))]
+              [hr (); txt (Printf.sprintf "map-key: %d" key); sub_component el] )
+        ) )]
 
 let () = Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream main

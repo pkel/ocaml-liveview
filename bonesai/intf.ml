@@ -1,5 +1,4 @@
 module type Types = sig
-  type 'a value
   (** The primary type in this library, you can think of ['a value] as "an ['a]
       that changes over time". The two main ways to create ['a value] are:
 
@@ -11,16 +10,16 @@ module type Types = sig
       2. by mapping on existing [value]'s to derive a new computed [value]
 
       Janestreet's Bonsai calls this ['a Bonsai.t]. *)
+  type 'a value
 
-  type 'a task
   (** An ['a task] represents a delayed computation that returns an ['a]. Such
       tasks might be scheduled arbitrarily often (including zero times) in the
       future. They might trigger side-effects and not idempotent. There is no
       memoization. It might be helpful to think of ['a task = unit -> 'a] but we
       intentionally hide the representation to avoid programmers creating tasks
       manually. Janestreet's Bonsai calls this ['a effect]. *)
+  type 'a task
 
-  type graph
   (** [graph] is a required parameter to all Bonesai functions which do more
       than pure computation.
 
@@ -34,6 +33,7 @@ module type Types = sig
       function, using recent features of OxCaml. On base OCaml we have to rely
       on users to not store a reference to the graph at build time to use it
       later at runtime. *)
+  type graph
 end
 
 module type Data0 = sig
@@ -47,14 +47,14 @@ module type Data0 = sig
 
   include Types
 
-  type 'a data
   (** Incremental version of the data container *)
+  type 'a data
 
-  type 'a raw
   (** Non-incremental version of the data container *)
+  type 'a raw
 
-  type 'a patch
   (** Patch format *)
+  type 'a patch
 
   (** Action format *)
   type 'a action =
@@ -100,10 +100,12 @@ module type Bonesai = sig
       dependent on the values of other [value]s. *)
 
   val map2 : 'a value -> 'b value -> f:('a -> 'b -> 'c) -> 'c value
+
   val both : 'a value -> 'b value -> ('a * 'b) value
 
   module Let_syntax : sig
     val ( let+ ) : 'a value -> ('a -> 'b) -> 'b value
+
     val ( and+ ) : 'a value -> 'b value -> ('a * 'b) value
   end
 
@@ -114,10 +116,10 @@ module type Bonesai = sig
       by passing a custom equality function to [cutoff]. *)
 
   val state :
-    ?equal:('model -> 'model -> bool) ->
-    'model ->
-    graph ->
-    'model value * ('model -> unit task) value
+       ?equal:('model -> 'model -> bool)
+    -> 'model
+    -> graph
+    -> 'model value * ('model -> unit task) value
   (** [state] allocates a stateful value. It returns both the [value] containing
       the current state, as well as a [value] containing a function for
       overwriting the state.
@@ -127,19 +129,19 @@ module type Bonesai = sig
       [?equal] (default [phys_equal]) can be used to integrate a {!cutoff}. *)
 
   val state_opt :
-    ?equal:('model -> 'model -> bool) ->
-    ?default_model:'model ->
-    graph ->
-    'model option value * ('model option -> unit task) value
+       ?equal:('model -> 'model -> bool)
+    -> ?default_model:'model
+    -> graph
+    -> 'model option value * ('model option -> unit task) value
   (** [state_opt] is just like [state] except that the model is optional. The
       model starts out as [None] unless you provide a value to the
       [default_model] optional parameter. *)
 
   val state' :
-    ?equal:('model -> 'model -> bool) ->
-    'model ->
-    graph ->
-    'model value * (('model -> 'model) -> unit task) value
+       ?equal:('model -> 'model -> bool)
+    -> 'model
+    -> graph
+    -> 'model value * (('model -> 'model) -> unit task) value
   (** Similar to [state], but the `set` function takes a function that
       calculates the new state from the previous state. *)
 
@@ -149,13 +151,12 @@ module type Bonesai = sig
       is scheduled. *)
 
   module Toggle : sig
-    type t = {
-      state : bool value;
-      set_state : (bool -> unit task) value;
-      toggle : unit task value;
-    }
     (** For the more advanced toggle function [toggle'] we return the state, the
         toggling function, and a function to set the state directly. *)
+    type t =
+      { state: bool value
+      ; set_state: (bool -> unit task) value
+      ; toggle: unit task value }
   end
 
   val toggle' : default_model:bool -> graph -> Toggle.t
@@ -175,6 +176,7 @@ module type Bonesai = sig
     type ('action, 'response) t
 
     val to_task : ('action, 'response) t -> 'action -> 'response task
+
     val schedule : _ t -> unit task -> unit
 
     (* TODO Janestreet's Bonsai exposes a time source here.
@@ -186,12 +188,12 @@ module type Bonesai = sig
   end
 
   val state_machine :
-    ?equal:('model -> 'model -> bool) ->
-    default_model:'model ->
-    apply_action:
-      (('action, unit) Apply_action_context.t -> 'model -> 'action -> 'model) ->
-    graph ->
-    'model value * ('action -> unit task) value
+       ?equal:('model -> 'model -> bool)
+    -> default_model:'model
+    -> apply_action:
+         (('action, unit) Apply_action_context.t -> 'model -> 'action -> 'model)
+    -> graph
+    -> 'model value * ('action -> unit task) value
   (** [state_machine] allows you to build a state machine whose state is
       initialized to whatever you pass to [default_model], and the state machine
       transitions states using the [apply_action] function. The current state
@@ -200,48 +202,48 @@ module type Bonesai = sig
       [?equal] works like the argument to {!state}. *)
 
   val state_machine_with_input :
-    ?equal:('model -> 'model -> bool) ->
-    default_model:'model ->
-    apply_action:
-      (('action, unit) Apply_action_context.t ->
-      'input ->
-      'model ->
-      'action ->
-      'model) ->
-    'input value ->
-    graph ->
-    'model value * ('action -> unit task) value
+       ?equal:('model -> 'model -> bool)
+    -> default_model:'model
+    -> apply_action:
+         (   ('action, unit) Apply_action_context.t
+          -> 'input
+          -> 'model
+          -> 'action
+          -> 'model )
+    -> 'input value
+    -> graph
+    -> 'model value * ('action -> unit task) value
   (** [state_machine_with_input] is identical to [state_machine] except that you
       can pass an arbitrary ['a value] dependency and have access to the current
       value within the [apply_action] function. *)
 
   val actor :
-    ?equal:('model -> 'model -> bool) ->
-    default_model:'model ->
-    recv:
-      (('action, 'return) Apply_action_context.t ->
-      'model ->
-      'action ->
-      'model * 'return) ->
-    graph ->
-    'model value * ('action -> 'return task) value
+       ?equal:('model -> 'model -> bool)
+    -> default_model:'model
+    -> recv:
+         (   ('action, 'return) Apply_action_context.t
+          -> 'model
+          -> 'action
+          -> 'model * 'return )
+    -> graph
+    -> 'model value * ('action -> 'return task) value
   (** [actor] is similar to [state_machine], but its [recv] function is
       responsible for not only transitioning the state of the state machine, but
       also for responding with a "return value" to whoever sent the message to
       the actor. *)
 
   val actor_with_input :
-    ?equal:('model -> 'model -> bool) ->
-    default_model:'model ->
-    recv:
-      (('action, 'return) Apply_action_context.t ->
-      'input ->
-      'model ->
-      'action ->
-      'model * 'return) ->
-    'input value ->
-    graph ->
-    'model value * ('action -> 'return task) value
+       ?equal:('model -> 'model -> bool)
+    -> default_model:'model
+    -> recv:
+         (   ('action, 'return) Apply_action_context.t
+          -> 'input
+          -> 'model
+          -> 'action
+          -> 'model * 'return )
+    -> 'input value
+    -> graph
+    -> 'model value * ('action -> 'return task) value
   (** [actor_with_input] is just like [actor] but it can witness the current
       value of a [value] inside its [recv] function just like
       [state_machine_with_input] *)
@@ -278,7 +280,6 @@ module type Bonesai = sig
       | U of int * 'a  (** [U (i, v)] substitutes the [i]-th element with [v] *)
       | X of int * int  (** [X (i, j)] swaps the [i]-th and [j]-th elements *)
 
-    type 'a patch = 'a p list
     (** A patch is a list of operations. The operations are applied in the order
         they appear in the list.
 
@@ -289,6 +290,7 @@ module type Bonesai = sig
         A patch comprised of I, R, and U steps with increasing indices can be
         applied in O(m+n), where m is the patch length and n is the current size
         of the list. Arbitrary patches are slower, requiring O(m*n). *)
+    type 'a patch = 'a p list
 
     include
       Data0
@@ -304,7 +306,7 @@ module type Bonesai = sig
   module Map0 (M : Map.S) : sig
     (** Incremental Map data structure; wrapper around {!ReactiveData.RMap}. *)
 
-    type 'a patch = [ `Add of M.key * 'a | `Del of M.key ] list
+    type 'a patch = [`Add of M.key * 'a | `Del of M.key] list
 
     include
       Data0
@@ -341,8 +343,8 @@ module type Bonesai = sig
        and then does the rendering for us.
     *)
 
-    type 'a t
     (** Incremental version of the data container *)
+    type 'a t
 
     type 'a action =
       | Set of M.key * (graph -> 'a value)
@@ -355,12 +357,13 @@ module type Bonesai = sig
     (* TODO what about errors like deleting an absent key? Also in Data0! Maybe add result type and return 'a action -> result task. But what can the programmer do if not ignoring the result? *)
 
     val set : M.key -> (graph -> 'a value) -> 'a action
+
     val del : M.key -> 'a action
 
     val create :
-      start:(graph -> 'a value) M.t ->
-      graph ->
-      'a t * ('a action -> unit task) value
+         start:(graph -> 'a value) M.t
+      -> graph
+      -> 'a t * ('a action -> unit task) value
     (** Create a new map, initialized with the bindings of [start]. *)
 
     val value : 'a t -> 'a M.t value

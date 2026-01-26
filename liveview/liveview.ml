@@ -14,11 +14,10 @@ module WeakTable = Ephemeron.K1.Make (String)
    Janestreet Bonsai has sophisticated tooling to generate stable identifiers,
    so called paths, for all values. I'm lazy and just use serial number
    converted to hex strings. *)
-type app_context = {
-  handlers : packed_to_task WeakTable.t; (* handler id -> handler *)
-  mutable next_component_id : int;
-  mutable next_handler_id : int;
-}
+type app_context =
+  { handlers: packed_to_task WeakTable.t (* handler id -> handler *)
+  ; mutable next_component_id: int
+  ; mutable next_handler_id: int }
 (* My intention with the WeakTable was to garbage collect redundant handlers
    after they stop being relevant. This was introduced while handlers where
    still allocated at render time. Now, with the static (at graph build time)
@@ -26,7 +25,7 @@ type app_context = {
    relevant again, when I start working on dynamic lists and assoc/maps. *)
 
 let app_context () =
-  { handlers = WeakTable.create 7; next_component_id = 0; next_handler_id = 0 }
+  {handlers= WeakTable.create 7; next_component_id= 0; next_handler_id= 0}
 
 module Extra = struct
   type t = app_context
@@ -47,7 +46,7 @@ let event_handler_id (g : graph) =
   (* graph argument is to enforce that this is not called at runtime *)
   let ctx = extra g in
   let id = Printf.sprintf "e%x" ctx.next_handler_id in
-  ctx.next_handler_id <- ctx.next_handler_id + 1;
+  ctx.next_handler_id <- ctx.next_handler_id + 1 ;
   Bonesai.return id
 
 (* allocate a new component id *)
@@ -55,21 +54,24 @@ let component_id (g : graph) =
   (* graph argument is to enforce that this is not called at runtime *)
   let ctx = extra g in
   let id = Printf.sprintf "c%x" ctx.next_component_id in
-  ctx.next_component_id <- ctx.next_component_id + 1;
+  ctx.next_component_id <- ctx.next_component_id + 1 ;
   Bonesai.return id
 
 module Handler : sig
   type 'a t
+
   type 'a pack = 'a to_task -> packed_to_task
 
   val id : 'a t -> string
+
   val create : id:string -> 'a pack -> 'a to_task -> graph -> 'a t
 end = struct
   (* this module enforces that handlers are correctly registered in the
      app_context *)
 
   type 'a pack = 'a to_task -> packed_to_task
-  type 'a t = { id : string; to_task : 'a to_task [@warning "-unused-field"] }
+
+  type 'a t = {id: string; to_task: 'a to_task [@warning "-unused-field"]}
   (* The to_task is not actually used, it's there to avoid garbage collection,
      handlers are accessed through the ctx.handlers weak hash table. *)
 
@@ -78,7 +80,7 @@ end = struct
   let create ~id pack to_task graph =
     let ctx = extra graph in
     let () = WeakTable.add ctx.handlers id (pack to_task) in
-    { id; to_task }
+    {id; to_task}
 end
 
 type 'a event_handler = 'a Handler.t
@@ -90,6 +92,7 @@ let event_handler' to_task pack to_action graph =
   Handler.create ~id pack f graph
 
 let pack_unit x = Unit x
+
 let pack_string x = String x
 
 let event_handler to_task action =
@@ -124,6 +127,7 @@ end = struct
   (* hide effect and effect handler *)
 
   type mode = Pre | Full | Update
+
   type _ Effect.t += Get_mode : unit -> mode Effect.t
 
   let get_mode () = Effect.perform (Get_mode ())
@@ -132,31 +136,36 @@ end = struct
     let open Effect in
     let open Effect.Deep in
     try_with f x
-      {
-        effc =
+      { effc=
           (fun (type a) (eff : a t) ->
             match eff with
             | Get_mode () ->
                 Some (fun (k : (a, _) continuation) -> continue k mode)
-            | _ -> None);
-      }
+            | _ ->
+                None ) }
 
   let mode_to_string = function
-    | Full -> "Full"
-    | Update -> "Update"
-    | Pre -> "Pre"
+    | Full ->
+        "Full"
+    | Update ->
+        "Update"
+    | Pre ->
+        "Pre"
 end
 
 type 'a renderer = Render.mode -> 'a Html.elt
+
 type packed_renderer = Renderer : 'a renderer -> packed_renderer
-type 'a component = { render : 'a renderer; hole : 'a Html.elt }
+
+type 'a component = {render: 'a renderer; hole: 'a Html.elt}
 
 module Html = struct
   include Html
 
   let js_event_handler attr name h =
     match Render.get_mode () with
-    | Pre -> a_user_data "liveview" name
+    | Pre ->
+        a_user_data "liveview" name
     | Full | Update ->
         let js =
           Printf.sprintf "liveview_%s('%s', event)" name (Handler.id h)
@@ -171,13 +180,15 @@ module Html = struct
 
   let sub_component (c : _ component) =
     match Render.get_mode () with
-    | Update -> c.hole
-    | Full -> c.render Full
-    | Pre -> c.render Pre
+    | Update ->
+        c.hole
+    | Full ->
+        c.render Full
+    | Pre ->
+        c.render Pre
 end
 
-type _ Effect.t +=
-  | Update : { id : string; r : packed_renderer } -> unit Effect.t
+type _ Effect.t += Update : {id: string; r: packed_renderer} -> unit Effect.t
 
 (* TODO: add Update module here that puts some guardrails around the Update
    effect, like Render does around the mode effect. *)
@@ -185,18 +196,19 @@ type _ Effect.t +=
 module Component = struct
   open Bonesai.Let_syntax
 
-  type ('outer, 'inner) container = {
-    full : id:string -> Render.mode -> 'inner Html.elt list -> 'outer Html.elt;
-    hole : id:string -> 'outer Html.elt;
-  }
+  type ('outer, 'inner) container =
+    { full: id:string -> Render.mode -> 'inner Html.elt list -> 'outer Html.elt
+    ; hole: id:string -> 'outer Html.elt }
 
   let div =
     let open Html in
     let full ~id = function
-      | Render.Pre -> div ~a:[ a_user_data "liveview" "component" ]
-      | Full | Update -> div ~a:[ a_id id ]
-    and hole ~id = div ~a:[ a_id id; a_user_data "morph-skip" "" ] [] in
-    { full; hole }
+      | Render.Pre ->
+          div ~a:[a_user_data "liveview" "component"]
+      | Full | Update ->
+          div ~a:[a_id id]
+    and hole ~id = div ~a:[a_id id; a_user_data "morph-skip" ""] [] in
+    {full; hole}
 
   let t container id render =
     let render mode =
@@ -204,8 +216,8 @@ module Component = struct
       let elts = Render.with_mode mode render () in
       container.full ~id mode elts
     and hole = container.hole ~id in
-    Effect.perform (Update { id; r = Renderer render });
-    { render; hole }
+    Effect.perform (Update {id; r= Renderer render}) ;
+    {render; hole}
 
   let cutoff (c : 'a component value) : 'a component value =
     (* the current type of components does not have anything of use for
@@ -250,20 +262,19 @@ module Component = struct
     cutoff raw
 end
 
-type 'a app = graph -> ([< Html_types.flow5 ] as 'a) component value
+type 'a app = graph -> ([< Html_types.flow5] as 'a) component value
 
 let with_update_handler (update : id:string -> packed_renderer -> unit) f x =
   let open Effect in
   let open Effect.Deep in
   try_with f x
-    {
-      effc =
+    { effc=
         (fun (type a) (eff : a t) ->
           match eff with
-          | Update { id; r } ->
+          | Update {id; r} ->
               Some (fun (k : (a, _) continuation) -> continue k (update ~id r))
-          | _ -> None);
-    }
+          | _ ->
+              None ) }
 
 let without_update_handler f = with_update_handler (fun ~id:_ _ -> ()) f
 
@@ -309,27 +320,36 @@ module Dream_websocket = struct
 
     (* let send_info ws m = send ws (Info m) *)
     let send_updates ws x = send ws (Updates x)
+
     let send_error ws m = send ws (Error m)
   end
 
   let lookup id table =
     match WeakTable.find_opt table id with
-    | None -> Error `Not_found
-    | Some x -> Ok x
+    | None ->
+        Error `Not_found
+    | Some x ->
+        Ok x
 
   let task_of_event_and_handler event handler =
     match (event, handler) with
-    | Message.OnClick, Unit f -> Some (f ())
-    | OnInput s, String f -> Some (f s)
-    | _ -> None
+    | Message.OnClick, Unit f ->
+        Some (f ())
+    | OnInput s, String f ->
+        Some (f s)
+    | _ ->
+        None
 
   module Updates : sig
     type t
 
     val create : unit -> t * (id:string -> packed_renderer -> unit)
+
     val send : t -> Dream.websocket -> unit Lwt.t
   end = struct
-    type u = { id : string; html : string } (* single update *)
+    type u = {id: string; html: string}
+
+    (* single update *)
     type t = u list ref (* accumulator *)
 
     (* TODO I had a mechanism here to catch redundant updates to the same
@@ -356,7 +376,7 @@ module Dream_websocket = struct
       let fn ~id (Renderer f) =
         let dom = f Update in
         let html = Format.asprintf "%a" (Html.pp_elt ()) dom in
-        t := { id; html } :: !t
+        t := {id; html} :: !t
       in
       (t, fn)
 
@@ -368,7 +388,7 @@ module Dream_websocket = struct
   let run_task app task =
     let updates, handler = Updates.create () in
     let f () =
-      Bonesai.Runtime.schedule app task;
+      Bonesai.Runtime.schedule app task ;
       (* TODO; do we have to wait for synchronization? Like `flush` in JS Bonsai? *)
       updates
     in
@@ -381,10 +401,10 @@ module Dream_websocket = struct
       let obs = Bonesai.Runtime.observe app in
       let html =
         let open Html in
-        div ~a:[ a_id "liveview" ] [ obs.render Full ]
+        div ~a:[a_id "liveview"] [obs.render Full]
       in
       let str = Format.asprintf "%a" (Html.pp_elt ()) html in
-      Message.send_updates websocket [ ("liveview", str) ]
+      Message.send_updates websocket [("liveview", str)]
     in
     let rec loop () =
       let () =
@@ -393,67 +413,65 @@ module Dream_websocket = struct
         (* TODO remove before release *)
       in
       match%lwt Dream.receive websocket with
-      | None -> Lwt.return ()
+      | None ->
+          Lwt.return ()
       | Some msg -> (
-          match Message.from_client msg with
-          | Ok (Event (id, event)) -> begin
-              begin match lookup id ctx.handlers with
-              | Ok sub -> begin
-                  match task_of_event_and_handler event sub with
+        match Message.from_client msg with
+        | Ok (Event (id, event)) -> (
+          match lookup id ctx.handlers with
+          | Ok sub -> (
+            match task_of_event_and_handler event sub with
+            | None ->
+                let msg = "event/handler mismatch: " ^ msg in
+                let%lwt () = Message.send_error websocket msg in
+                loop ()
+            | Some task ->
+                let%lwt () =
+                  (* add latency for testing *)
+                  match slowdown with
+                  | Some s ->
+                      Lwt_unix.sleep s
                   | None ->
-                      let msg = "event/handler mismatch: " ^ msg in
-                      let%lwt () = Message.send_error websocket msg in
-                      loop ()
-                  | Some task ->
-                      let%lwt () =
-                        (* add latency for testing *)
-                        match slowdown with
-                        | Some s -> Lwt_unix.sleep s
-                        | None -> Lwt.return_unit
-                      in
-                      let updates =
-                        Dream.log "%s: apply" id;
-                        run_task app task
-                      in
-                      let%lwt () = Updates.send updates websocket in
-                      loop ()
-                end
-              | Error `Invalid_id ->
-                  let msg = "error: invalid event id: " ^ id in
-                  let%lwt () = Message.send_error websocket msg in
-                  loop ()
-              | Error `Not_found ->
-                  (* Does high latency induce situations where the GC removes a
-                   * handler that some incoming messages assume to be present?
-                   *
-                   * I think this cannot happen currently. Handlers are
-                   * allocated statically at graph build time. Their ids do not
-                   * change.
-                   *
-                   * This might change when implementing dynamic
-                   * lists/assoc/maps. In that case, components might be
-                   * deallocated while the client is still sending events.
-                   * E.g. user deletes list element, then edits an input in
-                   * that element, before receiving the update that actually
-                   * deletes the element. But in that case it is sound to
-                   * ignore the delayed event (this match case) on the server.
-                   *
-                   * Now, if this can happen contrary to my expectation, we'll
-                   * need to add some user feedback about unstable connection
-                   * on the client.
-                   *
-                   * TODO upgrade to bug / server side error?
-                   *)
-                  let msg = "error: no event handler found for id: " ^ id in
-                  let%lwt () = Message.send_error websocket msg in
-                  loop ()
-              end
-            end
-          | Ok (Info _info) -> loop ()
-          | Error emsg ->
-              let msg = "cannot parse message: \"" ^ msg ^ "\": " ^ emsg in
+                      Lwt.return_unit
+                in
+                let updates = Dream.log "%s: apply" id ; run_task app task in
+                let%lwt () = Updates.send updates websocket in
+                loop () )
+          | Error `Invalid_id ->
+              let msg = "error: invalid event id: " ^ id in
               let%lwt () = Message.send_error websocket msg in
-              loop ())
+              loop ()
+          | Error `Not_found ->
+              (* Does high latency induce situations where the GC removes a
+               * handler that some incoming messages assume to be present?
+               *
+               * I think this cannot happen currently. Handlers are
+               * allocated statically at graph build time. Their ids do not
+               * change.
+               *
+               * This might change when implementing dynamic
+               * lists/assoc/maps. In that case, components might be
+               * deallocated while the client is still sending events.
+               * E.g. user deletes list element, then edits an input in
+               * that element, before receiving the update that actually
+               * deletes the element. But in that case it is sound to
+               * ignore the delayed event (this match case) on the server.
+               *
+               * Now, if this can happen contrary to my expectation, we'll
+               * need to add some user feedback about unstable connection
+               * on the client.
+               *
+               * TODO upgrade to bug / server side error?
+               *)
+              let msg = "error: no event handler found for id: " ^ id in
+              let%lwt () = Message.send_error websocket msg in
+              loop () )
+        | Ok (Info _info) ->
+            loop ()
+        | Error emsg ->
+            let msg = "cannot parse message: \"" ^ msg ^ "\": " ^ emsg in
+            let%lwt () = Message.send_error websocket msg in
+            loop () )
     in
     loop ()
 
@@ -464,30 +482,31 @@ module Dream_websocket = struct
       html
         (head
            (title (txt "Liveview"))
-           [
-             script ~a:[ a_src "/liveview.js" ] (txt "");
-             script ~a:[ a_src "/idiomorph.js" ] (txt "");
-             script (cdata_script js);
-           ])
-        (body [ div ~a:[ a_id "liveview" ] [ x ] ])
+           [ script ~a:[a_src "/liveview.js"] (txt "")
+           ; script ~a:[a_src "/idiomorph.js"] (txt "")
+           ; script (cdata_script js) ] )
+        (body [div ~a:[a_id "liveview"] [x]])
     in
     let str = Format.asprintf "%a" (Html.pp ()) html in
     Dream.html str
 
   let get_main ?slowdown app req =
     match Dream.header req "Upgrade" with
-    | Some "websocket" -> begin
-        match Dream.query req "csrf_token" with
-        | None -> Dream.empty `Unauthorized
-        | Some token -> (
-            match%lwt Dream.verify_csrf_token req token with
-            | `Expired _ -> Dream.empty `Forbidden
-            | `Wrong_session -> Dream.empty `Forbidden
-            | `Invalid -> Dream.empty `Unauthorized
-            | `Ok ->
-                let app = app req in
-                Dream.websocket (run ?slowdown app))
-      end
+    | Some "websocket" -> (
+      match Dream.query req "csrf_token" with
+      | None ->
+          Dream.empty `Unauthorized
+      | Some token -> (
+        match%lwt Dream.verify_csrf_token req token with
+        | `Expired _ ->
+            Dream.empty `Forbidden
+        | `Wrong_session ->
+            Dream.empty `Forbidden
+        | `Invalid ->
+            Dream.empty `Unauthorized
+        | `Ok ->
+            let app = app req in
+            Dream.websocket (run ?slowdown app) ) )
     | _ ->
         let csrf_token = Dream.csrf_token req in
         let app = app req in
@@ -498,18 +517,18 @@ module Dream_websocket = struct
     (* TODO maybe; we can get fancy here and use Crunch.hash to support etag
      * based hashing *)
     match Crunch.read fname with
-    | None -> Dream.empty (`Status 500)
-    | Some content -> Dream.respond ~headers:[ ("Content-Type", type_) ] content
+    | None ->
+        Dream.empty (`Status 500)
+    | Some content ->
+        Dream.respond ~headers:[("Content-Type", type_)] content
 
   let handler ?slowdown app =
     let open Dream in
     router
-      [
-        get "/" (get_main ?slowdown app);
-        get "/favicon.ico" (get_crunch "image/x-icon" "favicon.ico");
-        get "/idiomorph.js" (get_crunch "text/javascript" "idiomorph.js");
-        get "/liveview.js" (get_crunch "text/javascript" "liveview.js");
-      ]
+      [ get "/" (get_main ?slowdown app)
+      ; get "/favicon.ico" (get_crunch "image/x-icon" "favicon.ico")
+      ; get "/idiomorph.js" (get_crunch "text/javascript" "idiomorph.js")
+      ; get "/liveview.js" (get_crunch "text/javascript" "liveview.js") ]
 end
 
 let dream = Dream_websocket.handler

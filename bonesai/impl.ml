@@ -6,6 +6,7 @@ module type Task = sig
   type 'a t
 
   val create : (unit -> 'a) -> 'a t
+
   val execute : 'a t -> 'a
 end
 
@@ -13,6 +14,7 @@ module Task : Task = struct
   type 'a t = unit -> 'a
 
   let create f = f
+
   let execute f = f ()
 end
 
@@ -37,7 +39,9 @@ module type WithExtra = sig
     type 'a app
 
     val compile : (graph -> 'a value) -> 'a app * extra
+
     val schedule : 'a app -> unit task -> unit
+
     val observe : 'a app -> 'a
   end
 end
@@ -51,7 +55,9 @@ end
 module Make (Task : Task) (Extra : Extra) :
   WithExtra with type extra = Extra.t and type 'a task = 'a Task.t = struct
   type 'a task = 'a Task.t
+
   type extra = Extra.t
+
   type graph = Extra.t (* think: unit plus some opaque value *)
 
   let extra graph = graph
@@ -59,14 +65,20 @@ module Make (Task : Task) (Extra : Extra) :
   type 'a value = 'a React.signal
 
   let do_nothing = Task.create (fun () -> ())
+
   let phys_equal = ( == )
+
   let return = React.S.const
+
   let map a ~f = React.S.l1 ~eq:phys_equal f a
+
   let map2 a b ~f = React.S.l2 ~eq:phys_equal f a b
+
   let both a b = map2 a b ~f:(fun a b -> (a, b))
 
   module Let_syntax = struct
     let ( let+ ) v f = map v ~f
+
     let ( and+ ) = both
   end
 
@@ -89,6 +101,7 @@ module Make (Task : Task) (Extra : Extra) :
       (signal, graph (* graph = extra *))
 
     let observe = React.S.value
+
     let schedule _app = Task.execute
   end
 
@@ -108,7 +121,7 @@ module Make (Task : Task) (Extra : Extra) :
     let set_task update =
       Task.create (fun () ->
           let old_model = React.S.value signal in
-          setter (update old_model))
+          setter (update old_model) )
     in
     (signal, React.S.const set_task)
 
@@ -117,16 +130,15 @@ module Make (Task : Task) (Extra : Extra) :
     let toggle_task =
       Task.create (fun () ->
           let old_model = React.S.value signal in
-          setter (not old_model))
+          setter (not old_model) )
     in
     (signal, React.S.const toggle_task)
 
   module Toggle = struct
-    type t = {
-      state : bool value;
-      set_state : (bool -> unit task) value;
-      toggle : unit task value;
-    }
+    type t =
+      { state: bool value
+      ; set_state: (bool -> unit task) value
+      ; toggle: unit task value }
   end
 
   let toggle' ~default_model _graph =
@@ -135,47 +147,44 @@ module Make (Task : Task) (Extra : Extra) :
     let toggle_task =
       Task.create (fun () ->
           let old_model = React.S.value signal in
-          setter (not old_model))
+          setter (not old_model) )
     in
     Toggle.
-      {
-        state = signal;
-        set_state = React.S.const set_task;
-        toggle = React.S.const toggle_task;
-      }
+      { state= signal
+      ; set_state= React.S.const set_task
+      ; toggle= React.S.const toggle_task }
 
   module Apply_action_context = struct
-    type ('action, 'response) t = {
-      to_task : 'action -> 'response task;
-      schedule : unit task -> unit;
-    }
+    type ('action, 'response) t =
+      {to_task: 'action -> 'response task; schedule: unit task -> unit}
 
     let to_task t = t.to_task
+
     let schedule t = t.schedule
   end
 
   let state_machine ?(equal = phys_equal) ~default_model ~apply_action _graph =
     let open Apply_action_context in
     let signal, setter = React.S.create ~eq:equal default_model in
-    let rec ctx = { to_task; schedule = Task.execute }
+    let rec ctx = {to_task; schedule= Task.execute}
     and to_task action =
       Task.create (fun () ->
           let old_model = React.S.value signal in
           let new_model = apply_action ctx old_model action in
-          setter new_model)
+          setter new_model )
     in
     (signal, React.S.const to_task)
 
   let actor ?(equal = phys_equal) ~default_model ~recv _graph =
     let open Apply_action_context in
     let signal, setter = React.S.create ~eq:equal default_model in
-    let rec ctx = { to_task; schedule = Task.execute }
+    let rec ctx = {to_task; schedule= Task.execute}
     and to_task action =
       Task.create (fun () ->
           let old_model = React.S.value signal in
           let new_model, return = recv ctx old_model action in
           let () = setter new_model in
-          return)
+          return )
     in
     (signal, React.S.const to_task)
 
@@ -183,41 +192,46 @@ module Make (Task : Task) (Extra : Extra) :
       ~apply_action input _graph =
     let open Apply_action_context in
     let signal, setter = React.S.create ~eq:equal default_model in
-    let rec ctx = { to_task; schedule = Task.execute }
+    let rec ctx = {to_task; schedule= Task.execute}
     and to_task action =
       Task.create (fun () ->
           let old_model = React.S.value signal in
           let input = React.S.value input in
           let new_model = apply_action ctx input old_model action in
-          setter new_model)
+          setter new_model )
     in
     (signal, React.S.const to_task)
 
   let actor_with_input ?(equal = phys_equal) ~default_model ~recv input _graph =
     let open Apply_action_context in
     let signal, setter = React.S.create ~eq:equal default_model in
-    let rec ctx = { to_task; schedule = Task.execute }
+    let rec ctx = {to_task; schedule= Task.execute}
     and to_task action =
       Task.create (fun () ->
           let old_model = React.S.value signal in
           let input = React.S.value input in
           let new_model, return = recv ctx input old_model action in
           let () = setter new_model in
-          return)
+          return )
     in
     (signal, React.S.const to_task)
 
   module Data0 (RData : ReactiveData.S) = struct
     type 'a patch = 'a RData.patch
+
     type 'a raw = 'a RData.data
+
     type 'a action = Patch of 'a patch | Set of 'a raw
+
     type 'a data = 'a RData.t
 
     let create ~start (_ : graph) =
       let data, handle = RData.create start in
       let to_task = function
-        | Patch p -> Task.create (fun () -> RData.patch handle p)
-        | Set d -> Task.create (fun () -> RData.set handle d)
+        | Patch p ->
+            Task.create (fun () -> RData.patch handle p)
+        | Set d ->
+            Task.create (fun () -> RData.set handle d)
       in
       (data, React.S.const to_task)
 
@@ -256,6 +270,7 @@ module Make (Task : Task) (Extra : Extra) :
     type 'a action = Set of M.key * (graph -> 'a value) | Del of M.key
 
     let set k v = Set (k, v)
+
     let del k = Del k
 
     let create ~start graph =
@@ -270,8 +285,9 @@ module Make (Task : Task) (Extra : Extra) :
                render of new sub-components on the parent?
                *)
             Task.create (fun () ->
-                RMap.patch handle [ `Add (key, bonesai graph) ])
-        | Del key -> Task.create (fun () -> RMap.patch handle [ `Del key ])
+                RMap.patch handle [`Add (key, bonesai graph)] )
+        | Del key ->
+            Task.create (fun () -> RMap.patch handle [`Del key])
       in
       (data, React.S.const to_task)
 
