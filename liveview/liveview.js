@@ -2,6 +2,10 @@ var liveview_socket = null;
 const liveview_queue = [];
 
 function liveview_patch(id, html) {
+  // TODO I think it's feasible to put the id into a custom element,
+  // like data-liveview-component=<id>, to free the id attribute for
+  // use by the API consumer. A manually maintained WeakMap index should
+  // do the trick
   const component = document.getElementById(id);
   if (!component) {
     console.log('error: patch component: component id not found:', id);
