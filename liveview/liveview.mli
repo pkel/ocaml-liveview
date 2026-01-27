@@ -97,6 +97,41 @@ module Component : sig
     -> 'outer component value
 end
 
+(*
+module LList : sig
+  (** This solves a common pattern: rendering a component with a dynamic set of
+      sub-components. *)
+
+  open Bonesai
+  open Component
+
+  type ('a, 'el) template = graph -> ('a value * 'el component value)
+
+  type invalid_index_result = (unit, [`Invalid_index]) result
+
+  type ('a, 'el, 'ret) action =
+    | Insert: int * ('a, 'el) template -> ('a, 'el, invalid_index_result) action
+    | Append: ('a, 'el) template -> ('a, 'el, unit) action
+    | Swap: int * int -> ('a, 'el, invalid_index_result) action
+    | Remove: int -> ('a, 'el, invalid_index_result) action
+
+  val insert: int -> ('a, 'el) template -> ('a, 'el, invalid_index_result) action
+  val insert_ignore_error: int -> ('a, 'el) template -> ('a, 'el, unit) action
+  val append: ('a, 'el) template -> ('a, 'el, unit) action
+  val swap_ignore_error: int * int -> ('a, 'el, unit) action
+  val remove: int -> ('a, 'el, invalid_index_result) action
+  val remove_ignore_error: int -> ('a, 'el, unit) action
+
+  val create :
+       ('outer, 'el) container
+    -> start:(('a, 'el) template) list
+    -> graph
+    -> 'a list value
+       * (('a, 'el, 'res) action -> 'res task) value
+       * 'outer component value
+end
+*)
+
 module LMap (Ord : Map.OrderedType) : sig
   (** Extends {!Stdlib.Map.Make} with {!Bonesai} and {!Component} magic. This
       solves a common pattern: rendering a component with a dynamic set of
@@ -115,17 +150,17 @@ module LMap (Ord : Map.OrderedType) : sig
   open Bonesai
   open Component
 
-  type 'a action = Set of key * (graph -> 'a value) | Del of key
+  type ('a, 'el) template = graph -> 'a value * 'el component value
 
-  type opaque
+  type ('a, 'el) action = Set of key * ('a, 'el) template | Del of key
+  (* TODO use GADT like above in LList to inform users about invalid key errors *)
 
-  val component :
-       ('outer, 'a) container
-    -> start:(graph -> 'a component value) t
+  val create :
+       ('outer, 'el) container
+    -> start:('a, 'el) template t
     -> graph
-    -> opaque t value
-       (* TODO the opaque return bothers me but it's required for ex2_assoc *)
-       * ('a component action -> unit task) value
+    -> 'a t value
+       * (('a, 'el) action -> unit task) value
        * 'outer component value
 end
 

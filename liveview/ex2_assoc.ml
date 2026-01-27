@@ -32,21 +32,21 @@ let main _req graph =
 
      We'll need dynamic event handlers for that. One delete event per list item.
    *)
-  let input key =
+  let input key graph =
     let start = Printf.sprintf "element %d" key in
-    Input.component ~start
+    (Bonesai.return (), Input.component ~start graph)
   in
-  let opaque, to_task, rendered =
-    IntMap.component Component.div
+  let map, to_task, rendered =
+    IntMap.create Component.div
       ~start:(IntMap.of_list [(1, input 1); (2, input 2)])
       graph
   in
   let to_task =
-    let+ opaque = opaque and+ to_task = to_task in
+    let+ map = map and+ to_task = to_task in
     function
     | `Add ->
         let key =
-          match IntMap.max_binding_opt opaque with
+          match IntMap.max_binding_opt map with
           | None ->
               1
           | Some (key, _) ->
@@ -54,8 +54,8 @@ let main _req graph =
         in
         to_task IntMap.(Set (key, input key))
     | `Del key -> (
-      (* TODO handle invalid actions in Bonesai itself. Avoid exceptions *)
-      match IntMap.find_opt key opaque with
+      (* TODO handle invalid actions in Bonesai/Liveview itself. Avoid exceptions *)
+      match IntMap.find_opt key map with
       | None ->
           Bonesai.do_nothing
       | Some _ ->

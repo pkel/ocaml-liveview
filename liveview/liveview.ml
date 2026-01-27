@@ -266,20 +266,33 @@ module LMap (O : Map.OrderedType) = struct
   module M = Map.Make (O)
   module B = Bonesai.Map1 (M)
 
-  type 'a action = 'a B.action =
-    | Set of M.key * (graph -> 'a value)
-    | Del of M.key
+  type ('a, 'el) template = graph -> 'a value * 'el component value
 
-  type opaque = unit
+  type ('a, 'el) action = Set of M.key * ('a, 'el) template | Del of M.key
 
-  let component container ~start graph =
-    let bmap, to_task = B.create ~start graph in
-    let map = B.value bmap in
-    let opaque = Bonesai.map ~f:(M.map (fun _ -> ())) map in
-    let render map =
-      M.bindings map |> List.map (fun (_key, el) -> Html.sub_component el)
+  let create container ~start graph =
+    let map_template template graph =
+      let a, b = template graph in
+      Bonesai.both a b
     in
-    (opaque, to_task, Component.arg1 container map render graph)
+    let start = M.map map_template start in
+    let bmap, to_task = B.create ~start graph in
+    let to_task =
+      Bonesai.map
+        ~f:(fun to_task action ->
+          match action with
+          | Set (key, template) ->
+              B.Set (key, map_template template) |> to_task
+          | Del key ->
+              B.Del key |> to_task )
+        to_task
+    in
+    let map = B.value bmap in
+    let values = Bonesai.map ~f:(M.map fst) map in
+    let render map =
+      M.bindings map |> List.map (fun (_key, (_, el)) -> Html.sub_component el)
+    in
+    (values, to_task, Component.arg1 container map render graph)
 
   include M
 end
