@@ -262,6 +262,28 @@ module Component = struct
     cutoff raw
 end
 
+module LMap (O : Map.OrderedType) = struct
+  module M = Map.Make (O)
+  module B = Bonesai.Map1 (M)
+
+  type 'a action = 'a B.action =
+    | Set of M.key * (graph -> 'a value)
+    | Del of M.key
+
+  type opaque = unit
+
+  let component container ~start graph =
+    let bmap, to_task = B.create ~start graph in
+    let map = B.value bmap in
+    let opaque = Bonesai.map ~f:(M.map (fun _ -> ())) map in
+    let render map =
+      M.bindings map |> List.map (fun (_key, el) -> Html.sub_component el)
+    in
+    (opaque, to_task, Component.arg1 container map render graph)
+
+  include M
+end
+
 type 'a app = graph -> ([< Html_types.flow5] as 'a) component value
 
 let with_update_handler (update : id:string -> packed_renderer -> unit) f x =

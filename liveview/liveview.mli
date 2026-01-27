@@ -97,6 +97,38 @@ module Component : sig
     -> 'outer component value
 end
 
+module LMap (Ord : Map.OrderedType) : sig
+  (** Extends {!Stdlib.Map.Make} with {!Bonesai} and {!Component} magic. This
+      solves a common pattern: rendering a component with a dynamic set of
+      sub-components.
+
+      TODO extend API for ordering.
+      TODO think again whether the key is actually needed. React apparently
+      needs it for the reconciliation algorithm. Things might be different in
+      my liveview setting. In particular, the child components already have
+      unique identifiers. If we get rid of the key, we can just use a list or
+      similar. The ordering then happens automatically. *)
+
+  (** @closed *)
+  include Map.S with type key = Ord.t
+
+  open Bonesai
+  open Component
+
+  type 'a action = Set of key * (graph -> 'a value) | Del of key
+
+  type opaque
+
+  val component :
+       ('outer, 'a) container
+    -> start:(graph -> 'a component value) t
+    -> graph
+    -> opaque t value
+       (* TODO the opaque return bothers me but it's required for ex2_assoc *)
+       * ('a component action -> unit task) value
+       * 'outer component value
+end
+
 type 'a app = graph -> ([< Html_types.flow5] as 'a) component value
 
 val prerender : 'a app -> 'a Html.elt
