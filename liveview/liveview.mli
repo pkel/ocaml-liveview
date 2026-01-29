@@ -168,6 +168,12 @@ type 'a app = graph -> ([< Html_types.flow5] as 'a) component value
 
 val prerender : 'a app -> 'a Html.elt
 
-val dream : ?slowdown:float -> (Dream.request -> 'a app) -> Dream.handler
+type template =
+     Html_types.head_content_fun Html.elt list
+  -> Html_types.div Html.elt
+  -> Html_types.html Html.elt
+
+val dream :
+  ?slowdown:float -> template -> (Dream.request -> 'a app) -> Dream.handler
 (** Dream request handler for running the app over websockets. [~slowdown:s]
     delays server-side event handling by [s] seconds. *)

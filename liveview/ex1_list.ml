@@ -34,4 +34,9 @@ let main _req graph =
 
 (* TODO add API that allows to have state machines / components in the incremental container *)
 
-let () = Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream main
+let template scripts app =
+  let open Html in
+  html (head (title (txt "Liveview - ex1_list")) scripts) (body [app])
+
+let () =
+  Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream template main

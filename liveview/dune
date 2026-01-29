@@ -32,4 +32,4 @@
  (modules ex0_basic ex0_basic_ppx ex1_list ex2_assoc)
  (libraries liveview liveview.bonesai dream tyxml ppx_yojson_conv_lib)
  (preprocess
-  (pps lwt_ppx liveview.ppx)))
+  (pps liveview.ppx)))

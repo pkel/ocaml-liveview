@@ -299,6 +299,11 @@ end
 
 type 'a app = graph -> ([< Html_types.flow5] as 'a) component value
 
+type template =
+     Html_types.head_content_fun Html.elt list
+  -> Html_types.div Html.elt
+  -> Html_types.html Html.elt
+
 let with_update_handler (update : id:string -> packed_renderer -> unit) f x =
   let open Effect in
   let open Effect.Deep in
@@ -510,22 +515,19 @@ module Dream_websocket = struct
     in
     loop ()
 
-  let dream_tyxml ~csrf_token x =
+  let dream_tyxml ~template ~csrf_token x =
     let js = Printf.sprintf "liveview_boot('%s')" csrf_token in
-    let html =
-      let open Html in
-      html
-        (head
-           (title (txt "Liveview"))
-           [ script ~a:[a_src "/liveview.js"] (txt "")
-           ; script ~a:[a_src "/idiomorph.js"] (txt "")
-           ; script (cdata_script js) ] )
-        (body [div ~a:[a_id "liveview"] [x]])
-    in
+    let scripts =
+      Html.
+        [ script ~a:[a_src "/liveview.js"] (txt "")
+        ; script ~a:[a_src "/idiomorph.js"] (txt "")
+        ; script (cdata_script js) ]
+    and app = Html.(div ~a:[a_id "liveview"] [x]) in
+    let html = template scripts app in
     let str = Format.asprintf "%a" (Html.pp ()) html in
     Dream.html str
 
-  let get_main ?slowdown app req =
+  let get_main ?slowdown ~template app req =
     match Dream.header req "Upgrade" with
     | Some "websocket" -> (
       match Dream.query req "csrf_token" with
@@ -546,7 +548,7 @@ module Dream_websocket = struct
         let csrf_token = Dream.csrf_token req in
         let app = app req in
         let bonesai_html = prerender app in
-        dream_tyxml ~csrf_token bonesai_html
+        dream_tyxml ~template ~csrf_token bonesai_html
 
   let get_crunch type_ fname _req =
     (* TODO maybe; we can get fancy here and use Crunch.hash to support etag
@@ -557,10 +559,10 @@ module Dream_websocket = struct
     | Some content ->
         Dream.respond ~headers:[("Content-Type", type_)] content
 
-  let handler ?slowdown app =
+  let handler ?slowdown template app =
     let open Dream in
     router
-      [ get "/" (get_main ?slowdown app)
+      [ get "/" (get_main ~template ?slowdown app)
       ; get "/favicon.ico" (get_crunch "image/x-icon" "favicon.ico")
       ; get "/idiomorph.js" (get_crunch "text/javascript" "idiomorph.js")
       ; get "/liveview.js" (get_crunch "text/javascript" "liveview.js") ]

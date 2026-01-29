@@ -66,4 +66,9 @@ let main _req graph =
       [ button ~a:[a_onclick [%a `Add]] [txt "new input"]
       ; sub_component [%v rendered] ]]
 
-let () = Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream main
+let template scripts app =
+  let open Html in
+  html (head (title (txt "Liveview - ex2_assoc")) scripts) (body [app])
+
+let () =
+  Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream template main

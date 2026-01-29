@@ -90,5 +90,10 @@ let main req =
   and s = parse_query_s req in
   main ~n1 ~n2 ~n3 ~s
 
+let template scripts app =
+  let open Html in
+  html (head (title (txt "Liveview - ex0_basic_ppx")) scripts) (body [app])
+
 let () =
-  Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream ~slowdown:0.3 main
+  Dream.run @@ Dream.logger @@ Dream.memory_sessions
+  @@ dream ~slowdown:0.3 template main
