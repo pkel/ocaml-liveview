@@ -174,6 +174,6 @@ type template =
   -> Html_types.html Html.elt
 
 val dream :
-  ?slowdown:float -> template -> (Dream.request -> 'a app) -> Dream.handler
-(** Dream request handler for running the app over websockets. [~slowdown:s]
+  ?slowdown:float -> template -> (Dream.request -> 'a app) -> Dream.route list
+(** Dream routes for running the app over websockets. [~slowdown:s]
     delays server-side event handling by [s] seconds. *)

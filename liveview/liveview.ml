@@ -552,20 +552,20 @@ module Dream_websocket = struct
 
   let get_crunch type_ fname _req =
     (* TODO maybe; we can get fancy here and use Crunch.hash to support etag
-     * based hashing *)
+       based hashing. Or put the hash into the filename, like it happens on
+       various JS build systems. *)
     match Crunch.read fname with
     | None ->
         Dream.empty (`Status 500)
     | Some content ->
         Dream.respond ~headers:[("Content-Type", type_)] content
 
-  let handler ?slowdown template app =
+  let routes ?slowdown template app =
     let open Dream in
-    router
-      [ get "/" (get_main ~template ?slowdown app)
-      ; get "/favicon.ico" (get_crunch "image/x-icon" "favicon.ico")
-      ; get "/idiomorph.js" (get_crunch "text/javascript" "idiomorph.js")
-      ; get "/liveview.js" (get_crunch "text/javascript" "liveview.js") ]
+    [ get "/" (get_main ~template ?slowdown app)
+    ; get "/favicon.ico" (get_crunch "image/x-icon" "favicon.ico")
+    ; get "/idiomorph.js" (get_crunch "text/javascript" "idiomorph.js")
+    ; get "/liveview.js" (get_crunch "text/javascript" "liveview.js") ]
 end
 
-let dream = Dream_websocket.handler
+let dream = Dream_websocket.routes

@@ -71,4 +71,5 @@ let template scripts app =
   html (head (title (txt "Liveview - ex2_assoc")) scripts) (body [app])
 
 let () =
-  Dream.run @@ Dream.logger @@ Dream.memory_sessions @@ dream template main
+  Dream.run @@ Dream.logger @@ Dream.memory_sessions
+  @@ Dream.router (dream template main)

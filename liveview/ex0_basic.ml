@@ -100,4 +100,4 @@ let template scripts app =
 
 let () =
   Dream.run @@ Dream.logger @@ Dream.memory_sessions
-  @@ dream ~slowdown:0.3 template main
+  @@ Dream.router (dream ~slowdown:0.3 template main)
