@@ -10,6 +10,7 @@ module Counter = struct
     let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
+    let open Html in
     [%component
       div
         [ button ~a:[a_onclick [%a Decr]] [txt "-1"]
@@ -30,6 +31,7 @@ module Input = struct
     let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
+    let open Html in
     [%component
       div (* TODO It might be cool to add attributes with ~a here *)
         [ form (* TODO I think form could be a top-level component type *)
@@ -47,6 +49,7 @@ let main ~n1 ~n2 ~n3 ~s graph =
   and two = Counter.component ~start:n2 graph
   and three = Counter.component ~start:n3 graph
   and four = Input.component ~start:s graph in
+  let open Html in
   [%component
     div
       [ sub_component [%v one]

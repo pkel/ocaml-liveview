@@ -95,6 +95,42 @@ module Component : sig
     -> ('a -> 'b -> 'c -> 'd -> 'inner Html.elt list)
     -> graph
     -> 'outer component value
+
+  val arg5 :
+       ('outer, 'inner) container
+    -> 'a value
+    -> 'b value
+    -> 'c value
+    -> 'd value
+    -> 'e value
+    -> ('a -> 'b -> 'c -> 'd -> 'e -> 'inner Html.elt list)
+    -> graph
+    -> 'outer component value
+
+  val arg6 :
+       ('outer, 'inner) container
+    -> 'a value
+    -> 'b value
+    -> 'c value
+    -> 'd value
+    -> 'e value
+    -> 'f value
+    -> ('a -> 'b -> 'c -> 'd -> 'e -> 'f -> 'inner Html.elt list)
+    -> graph
+    -> 'outer component value
+
+  val arg7 :
+       ('outer, 'inner) container
+    -> 'a value
+    -> 'b value
+    -> 'c value
+    -> 'd value
+    -> 'e value
+    -> 'f value
+    -> 'g value
+    -> ('a -> 'b -> 'c -> 'd -> 'e -> 'f -> 'g -> 'inner Html.elt list)
+    -> graph
+    -> 'outer component value
 end
 
 (*

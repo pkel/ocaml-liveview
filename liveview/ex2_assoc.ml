@@ -15,6 +15,7 @@ module Input = struct
     let state, to_task =
       Bonesai.state_machine graph ~default_model:start ~apply_action
     in
+    let open Html in
     [%component
       div
         [ form
@@ -61,6 +62,7 @@ let main _req graph =
       | Some _ ->
           to_task IntMap.(Del key) )
   in
+  let open Html in
   [%component
     div
       [ button ~a:[a_onclick [%a `Add]] [txt "new input"]

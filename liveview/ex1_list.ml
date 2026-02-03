@@ -21,6 +21,7 @@ let main _req graph =
         else Bonesai.do_nothing
   in
   let size = Bonesai.map ~f:List.length list in
+  let open Html in
   [%component
     div
       ( [ button

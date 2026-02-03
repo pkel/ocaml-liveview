@@ -260,6 +260,45 @@ module Component = struct
       t container id (fun () -> render a b c d)
     in
     cutoff raw
+
+  let arg5 container a b c d e render graph =
+    let raw =
+      let+ a = a
+      and+ b = b
+      and+ c = c
+      and+ d = d
+      and+ e = e
+      and+ id = component_id graph in
+      t container id (fun () -> render a b c d e)
+    in
+    cutoff raw
+
+  let arg6 container a b c d e f render graph =
+    let raw =
+      let+ a = a
+      and+ b = b
+      and+ c = c
+      and+ d = d
+      and+ e = e
+      and+ f = f
+      and+ id = component_id graph in
+      t container id (fun () -> render a b c d e f)
+    in
+    cutoff raw
+
+  let arg7 container a b c d e f g render graph =
+    let raw =
+      let+ a = a
+      and+ b = b
+      and+ c = c
+      and+ d = d
+      and+ e = e
+      and+ f = f
+      and+ g = g
+      and+ id = component_id graph in
+      t container id (fun () -> render a b c d e f g)
+    in
+    cutoff raw
 end
 
 module LMap (O : Map.OrderedType) = struct
